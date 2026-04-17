@@ -1,0 +1,120 @@
+<section class="card">
+  <header>
+    <h1 class="title">Create a multiplayer Sudoku game</h1>
+    <p class="subtitle">
+      Set up one lobby link. Players open it, enter their names, and join on a
+      first-come, first-served basis.
+    </p>
+  </header>
+
+  <div class="grid">
+    <div class="field">
+      <label class="label" for="player-count">Number of Players</label>
+      <select
+        id="player-count"
+        class="select"
+        [ngModel]="playerCount()"
+        (ngModelChange)="updatePlayerCount($event)"
+      >
+        @for (count of [1, 2, 3, 4, 5, 6, 7, 8]; track count) {
+          <option [ngValue]="count">{{ count }} player{{ count > 1 ? 's' : '' }}</option>
+        }
+      </select>
+      <p class="helper">The lobby closes once this many players have joined.</p>
+    </div>
+
+    <div class="field">
+      <label class="label" for="game-time">Game Time</label>
+      <select
+        id="game-time"
+        class="select"
+        [ngModel]="durationMinutes()"
+        (ngModelChange)="updateDuration($event)"
+      >
+        @for (minutes of durationOptions; track minutes) {
+          <option [ngValue]="minutes">{{ formatDurationOption(minutes) }}</option>
+        }
+      </select>
+      <p class="helper">This becomes the shared round length for every player.</p>
+    </div>
+
+    <div class="field">
+      <label class="label" for="buffer-time">Start Buffer</label>
+      <select
+        id="buffer-time"
+        class="select"
+        [ngModel]="startBufferMinutes()"
+        (ngModelChange)="updateStartBuffer($event)"
+      >
+        @for (seconds of bufferOptions; track seconds) {
+          <option [ngValue]="seconds">
+            {{ seconds < 60 ? seconds + ' seconds' : (seconds / 60 | number:'1.0-1') + ' minutes' }}
+          </option>
+        }
+      </select>
+      <p class="helper">
+        Timer starts after this buffer so you can share the links first.
+      </p>
+    </div>
+
+    <div class="field">
+      <label class="label" for="difficulty">Difficulty</label>
+      <select
+        id="difficulty"
+        class="select"
+        [ngModel]="difficulty()"
+        (ngModelChange)="updateDifficulty($event)"
+      >
+        @for (level of difficultyOptions; track level) {
+          <option [ngValue]="level">{{ level === 'any' ? 'Any difficulty' : level }}</option>
+        }
+      </select>
+      <p class="helper">The creator chooses the puzzle pool for this lobby.</p>
+    </div>
+  </div>
+
+  <div class="actions-row">
+    <button class="primary-button" type="button" (click)="createLobbyLink()">
+      <span>Create lobby link</span>
+    </button>
+  </div>
+
+  <section class="result-card" *ngIf="inviteLink() as invite">
+    <h2 class="result-title">Lobby link ready</h2>
+    <div class="result-meta">
+      <span class="badge">Up to {{ playerCount() }} players</span>
+      <span class="badge">{{ formatDurationOption(durationMinutes()) }} round</span>
+      <span class="badge">{{ difficulty() === 'any' ? 'Any difficulty' : difficulty() }}</span>
+      <span class="badge" *ngIf="startTimeLabel() as label">Starts at {{ label }}</span>
+    </div>
+
+    <div class="actions-row" style="margin: 0 0 1rem;">
+      <button class="primary-button" type="button" (click)="copyInviteLink()">
+        Copy lobby link
+      </button>
+      <a class="open-link" [href]="invite.route">Open lobby</a>
+    </div>
+
+    <div class="player-link-card">
+      <div class="player-link-head">
+        <div class="player-name">Shared invite</div>
+        <span class="badge">Lobby link</span>
+      </div>
+
+      <div class="player-url" [title]="invite.link">{{ invite.shortLink }}</div>
+
+      <div class="player-actions">
+        <button class="copy-button" type="button" (click)="copyPlayerLink(invite.link)">
+          Copy link
+        </button>
+      </div>
+    </div>
+
+    <p class="status" *ngIf="copyStatus() as status">{{ status }}</p>
+  </section>
+
+  <section class="helper-card">
+    Share one lobby link with everyone. Each player enters their own name in the
+    lobby, then opens the same puzzle with the shared timer and scoreboard.
+  </section>
+</section>

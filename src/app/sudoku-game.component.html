@@ -1,0 +1,55 @@
+<section class="shell">
+  <div class="topbar">
+    <div class="panel">
+      <span class="panel-label">User Name</span>
+      <div class="field-value">{{ username() }}</div>
+    </div>
+
+    <div class="panel">
+      <span class="panel-label">{{ countdownLabel() }}</span>
+      <div class="stat-value">{{ timerLabel() }}</div>
+      <div class="stat-subtext">
+        {{ gameStatus() === 'waiting' ? 'Shared timer has not started yet.' :
+          gameStatus() === 'running' ? 'Round is live for all players.' :
+          'Round finished.' }}
+      </div>
+    </div>
+
+    <div class="panel">
+      <span class="panel-label">Score</span>
+      <div class="stat-value">{{ score() }}</div>
+      <div class="stat-subtext">{{ lastScoreChange() }}</div>
+    </div>
+  </div>
+
+  <p class="error" *ngIf="loadError() as error">
+    {{ error }}
+  </p>
+
+  <div class="play-area" *ngIf="!loadError()">
+    <div class="board-shell">
+      <div class="board" *ngIf="puzzleCells().length">
+        @for (item of puzzleCells(); track $index) {
+          <div
+            class="cell"
+            [class.empty]="item.isEmpty"
+            [class.fixed]="item.fixed"
+            [class.editable]="item.editable"
+            [class.related]="item.related && !item.isSelected"
+            [class.selected]="item.isSelected"
+            [class.correct]="item.correct"
+            [class.incorrect]="item.incorrect"
+            [class.disabled]="gameStatus() === 'waiting' || gameStatus() === 'finished'"
+            (click)="selectCell(item.index)"
+          >
+            {{ item.value }}
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-actions" *ngIf="gameStatus() === 'finished' && resultRoute() as route">
+    <a class="result-link" [href]="route">View final results</a>
+  </div>
+</section>
