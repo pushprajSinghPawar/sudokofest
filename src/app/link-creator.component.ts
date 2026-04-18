@@ -2,9 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { HttpClient, HttpClientModule } from '@angular/common/http';
 import { GameSessionService, type Difficulty as SessionDifficulty } from './game-session.service';
-import { type PuzzleAssetEntry } from './sudoku-puzzle';
 
 type PlayerLink = {
   route: string;
@@ -17,7 +15,7 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
 @Component({
   selector: 'app-link-creator',
   standalone: true,
-  imports: [CommonModule, FormsModule, HttpClientModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './link-creator.component.html',
   styles: [
     `
@@ -272,7 +270,6 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
 })
 export class LinkCreatorComponent {
   private readonly router = inject(Router);
-  private readonly http = inject(HttpClient);
   private readonly gameSessions = inject(GameSessionService);
 
   readonly playerCount = signal(2);
@@ -359,73 +356,27 @@ export class LinkCreatorComponent {
     this.isCreating.set(true);
     this.copyStatus.set(null);
 
-    const dataUrl = '/assets/sudoku.json';
-    this.http.get<PuzzleAssetEntry[]>(dataUrl).subscribe({
-      next: (puzzles) => {
-        if (!Array.isArray(puzzles) || puzzles.length === 0) {
-          this.inviteLink.set(null);
-          this.copyStatus.set('No puzzles are available locally.');
-          this.isCreating.set(false);
-          return;
-        }
-
-        const puzzleIndex = this.choosePuzzleIndex(puzzles);
-        this.createLobbyLinkWithPuzzleId(String(puzzleIndex)).catch((error) => {
-          console.error('Failed to create local game session', error);
-          this.inviteLink.set(null);
-          this.copyStatus.set('Unable to create a game session. Please try again.');
-          this.isCreating.set(false);
-        });
-      },
-      error: (error) => {
-        console.error('Failed to load local puzzle list', {
-          dataUrl,
-          error,
-        });
-        this.inviteLink.set(null);
-        this.copyStatus.set('Unable to load local puzzles. Please try again.');
-        this.isCreating.set(false);
-      },
+    this.createLobbyLinkOnServer().catch((error) => {
+      console.error('Failed to create game lobby', error);
+      this.inviteLink.set(null);
+      this.copyStatus.set('Unable to create a game lobby. Is the API server running?');
+      this.isCreating.set(false);
     });
   }
 
-  private choosePuzzleIndex(puzzles: PuzzleAssetEntry[]): number {
-    const difficulty = this.difficulty();
-    if (difficulty === 'any') {
-      return Math.floor(Math.random() * puzzles.length);
-    }
-
-    const difficultyIndex = ['easy', 'medium', 'hard'].indexOf(difficulty);
-    const matchingIndexes = puzzles
-      .map((puzzle, index) => ({ puzzle, index }))
-      .filter(({ puzzle }) => {
-        if (Array.isArray(puzzle)) {
-          return puzzle.at(-1) === difficultyIndex;
-        }
-
-        return puzzle.difficulty === difficulty;
-      })
-      .map(({ index }) => index);
-    const source = matchingIndexes.length ? matchingIndexes : puzzles.map((_, index) => index);
-    return source[Math.floor(Math.random() * source.length)];
-  }
-
-  private async createLobbyLinkWithPuzzleId(puzzleId: string): Promise<void> {
-    const createdAt = Date.now();
-    const startAt = createdAt + this.startBufferMinutes() * 1000;
+  private async createLobbyLinkOnServer(): Promise<void> {
     const origin = this.origin();
     const difficulty = this.difficulty();
     const session = await this.gameSessions.createSession({
-      puzzleId,
       maxPlayers: this.playerCount(),
       durationMinutes: this.durationMinutes(),
-      startAt,
+      startBufferSeconds: this.startBufferMinutes(),
       difficulty: difficulty === 'any' ? undefined : difficulty,
     });
 
     const route = this.router.serializeUrl(this.router.createUrlTree(['/lobby', session.id]));
-    this.createdAt.set(createdAt);
-    this.startAt.set(startAt);
+    this.createdAt.set(session.createdAt);
+    this.startAt.set(session.startAt);
     this.inviteLink.set({
       route,
       link: `${origin}${route}`,
@@ -438,7 +389,7 @@ export class LinkCreatorComponent {
       sessionId: session.id,
       durationMinutes: this.durationMinutes(),
       maxPlayers: this.playerCount(),
-      startAt: new Date(startAt).toISOString(),
+      startAt: new Date(session.startAt).toISOString(),
     });
   }
 

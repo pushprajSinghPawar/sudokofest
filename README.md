@@ -1,18 +1,19 @@
-# SudokuFest
+# SudokuFest (Beginner Guide)
 
-SudokuFest is an Angular multiplayer Sudoku frontend. A host creates one lobby
-link, players join with their names, and the game uses a shared puzzle, timer,
-and scoreboard flow.
+SudokuFest is a multiplayer Sudoku app with:
+- Angular frontend
+- Fastify backend API + WebSocket server
 
-## Prerequisites
+If you are running this project for the first time, follow the steps below in order.
 
-Install these before running the app:
+## 1) What you need before running
 
-- Node.js 22 or newer
-- npm 10 or newer
+Install these tools:
+- Node.js `22+`
+- npm `10+`
 - Git
 
-Check your versions:
+Check versions:
 
 ```bash
 node --version
@@ -20,117 +21,102 @@ npm --version
 git --version
 ```
 
-This project was created with Angular 21 and uses `npm@10.8.2`.
+## 2) Which folder to run commands in
 
-## Setup
+Run commands inside this folder:
 
-From the project folder, install dependencies:
+```text
+Frontend/sudokofest
+```
+
+Example:
+
+```bash
+cd /home/pushpraj/git/sudokofest/Frontend/sudokofest
+```
+
+## 3) Install dependencies (first time only)
 
 ```bash
 npm install
 ```
 
-The Sudoku puzzle data is loaded from:
+## 4) Start the app (you need 2 terminals)
 
-```text
-public/assets/sudoku.json
-```
-
-Make sure this file exists before running the app.
-
-## Run Locally
-
-Start the Angular development server:
+Open **Terminal 1** in `Frontend/sudokofest`:
 
 ```bash
-npm start
+npm run start:api
 ```
 
-Open the app in your browser:
+This starts the backend on:
+
+```text
+http://localhost:4000
+```
+
+Open **Terminal 2** in `Frontend/sudokofest`:
+
+```bash
+npm run start:web
+```
+
+This starts the frontend on:
 
 ```text
 http://localhost:4200
 ```
 
-If port `4200` is already in use, run:
+Now open your browser and go to `http://localhost:4200`.
+
+## 5) If it does not start
+
+- Confirm both terminals are still running (no red error text).
+- Make sure you are in `Frontend/sudokofest` before running commands.
+- If port `4200` is busy:
 
 ```bash
 npx ng serve --port 4300
 ```
 
-Then open:
+Then open `http://localhost:4300`.
 
-```text
-http://localhost:4300
-```
-
-## Local Multiplayer Flow
-
-1. Open the home page.
-2. Select the maximum number of players.
-3. Select the game time.
-4. Select the start buffer.
-5. Select a difficulty.
-6. Click `Create lobby link`.
-7. Open or share the generated lobby link.
-8. Each player enters their name and joins the game.
-
-The current lobby/session service is a local dummy implementation backed by
-browser `localStorage`. It is useful for local testing and frontend development,
-but it does not sync players across different devices yet.
-
-For real online multiplayer, replace `LocalGameSessionService` in
-`src/app/game-session.service.ts` with a backend implementation using Firebase,
-Supabase, WebSockets, or a custom API.
-
-## Build
-
-Create a production build:
+## 6) Build for production (optional)
 
 ```bash
 npm run build
 ```
 
-The build output is written to:
+Output folder:
 
 ```text
 dist/sudokofest
 ```
 
-## Watch Build
-
-Run a development build that watches for changes:
-
-```bash
-npm run watch
-```
-
-## Tests
-
-Run the test command:
+## 7) Run tests (optional)
 
 ```bash
 npm test
 ```
 
-## Assets
+## 8) Important data files
 
-Angular copies everything from `public/` into the deployed app. The active
-Sudoku data file is:
+Backend puzzle and session files:
 
 ```text
-public/assets/sudoku.json
+server/data/sudoku.json
+server/data/sessions.json
 ```
 
-`public/assets/app.py` is only a helper script for compressing/converting Sudoku
-JSON data. It is not required to run the Angular application.
+The frontend does not read puzzle answers directly; validation happens on the backend.
 
-## Useful Commands
+## Quick command list
 
 ```bash
+cd /home/pushpraj/git/sudokofest/Frontend/sudokofest
 npm install
-npm start
+npm run start:api
+npm run start:web
 npm run build
-npm run watch
 npm test
 ```

@@ -9,13 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { HttpClient, HttpClientModule } from '@angular/common/http';
-import { GameSessionService } from './game-session.service';
-import {
-  type Difficulty,
-  type PuzzleAssetEntry,
-  normalizePuzzleEntry,
-} from './sudoku-puzzle';
+import { GameSessionService, type Difficulty } from './game-session.service';
 
 type GameTokenPayload = {
   batch: number;
@@ -25,25 +19,17 @@ type GameTokenPayload = {
   startAt?: number;
   createdAt?: number;
   playerIndex?: number;
+  playerId?: string;
   playerName?: string;
   totalPlayers?: number;
   sessionId?: string;
   puzzleId?: string;
 };
 
-type GameState = {
-  puzzleId?: string | null;
-  currentValues: string[];
-  lockedCells: boolean[];
-  score: number;
-  lastScoreChange: string;
-  updatedAt: number;
-};
-
 @Component({
   selector: 'app-sudoku-game',
   standalone: true,
-  imports: [CommonModule, HttpClientModule],
+  imports: [CommonModule],
   templateUrl: './sudoku-game.component.html',
   styles: [
     `
@@ -395,7 +381,6 @@ type GameState = {
 })
 export class SudokuGameComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
-  private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
   private readonly gameSessions = inject(GameSessionService);
   private timerHandle: number | null = null;
@@ -404,10 +389,10 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
   private readonly entry = signal<number | null>(null);
 
   readonly username = signal('Guest Player');
+  readonly playerId = signal<string | null>(null);
   readonly difficulty = signal<Difficulty>('medium');
   readonly totalPlayers = signal(1);
   readonly puzzle = signal<string | null>(null);
-  readonly solution = signal<string | null>(null);
   readonly loadError = signal<string | null>(null);
   readonly timerLabel = signal('00:00');
   readonly score = signal(0);
@@ -430,12 +415,11 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
   readonly puzzleGrid = computed(() => this.buildGrid(this.puzzle()));
   readonly puzzleCells = computed(() => {
     const puzzle = this.puzzle();
-    const solution = this.solution();
     const currentValues = this.currentValues();
     const lockedCells = this.lockedCells();
     const selectedCell = this.selectedCell();
 
-    if (!puzzle || !solution || currentValues.length < 81 || lockedCells.length < 81) {
+    if (!puzzle || currentValues.length < 81 || lockedCells.length < 81) {
       return [];
     }
 
@@ -446,6 +430,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       const puzzleDigit = puzzle[index] ?? '0';
       const value = currentValues[index] ?? '';
       const fixed = (puzzleDigit !== '0' && puzzleDigit !== '.') || lockedCells[index];
+      const originalFixed = puzzleDigit !== '0' && puzzleDigit !== '.';
       const editable = !fixed;
       const isEmpty = value === '';
       const isSelected = selectedCell === index;
@@ -461,8 +446,8 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
         (selectedRow === rowIndex ||
           selectedCol === colIndex ||
           selectedBox === boxIndex);
-      const correct = editable && value !== '' && value === solution[index];
-      const incorrect = editable && value !== '' && value !== solution[index];
+      const correct = !originalFixed && lockedCells[index];
+      const incorrect = editable && value !== '';
 
       return {
         index,
@@ -514,7 +499,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
 
     if (/^[1-9]$/.test(event.key)) {
       event.preventDefault();
-      this.updateCell(selectedIndex, event.key);
+      void this.updateCell(selectedIndex, event.key);
       return;
     }
 
@@ -578,6 +563,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       this.batch.set(batch);
       this.entry.set(entry);
       this.username.set(payload.playerName?.trim() || 'Guest Player');
+      this.playerId.set(payload.playerId ?? null);
       this.difficulty.set(payload.difficulty ?? 'medium');
       this.totalPlayers.set(payload.totalPlayers ?? 1);
       this.durationMinutes.set(payload.durationMinutes ?? 2);
@@ -603,61 +589,6 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     });
   }
 
-  private getGameStateKey(): string | null {
-    const sessionId = this.sessionId();
-    const playerName = this.username();
-    if (!sessionId || !playerName || typeof localStorage === 'undefined') {
-      return null;
-    }
-    return `sudokofest:game:${sessionId}:${playerName}`;
-  }
-
-  private loadGameState(): GameState | null {
-    const key = this.getGameStateKey();
-    if (!key || typeof localStorage === 'undefined') {
-      return null;
-    }
-
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(raw) as GameState;
-    } catch {
-      return null;
-    }
-  }
-
-  private saveGameState(): void {
-    const key = this.getGameStateKey();
-    if (!key || typeof localStorage === 'undefined') {
-      return;
-    }
-
-    localStorage.setItem(
-      key,
-      JSON.stringify({
-        puzzleId: this.puzzleId(),
-        currentValues: this.currentValues(),
-        lockedCells: this.lockedCells(),
-        score: this.score(),
-        lastScoreChange: this.lastScoreChange(),
-        updatedAt: Date.now(),
-      }),
-    );
-  }
-
-  private choosePuzzleIndex(max: number): number {
-    const batch = this.batch();
-    const entry = this.entry();
-    if (batch != null && entry != null) {
-      return (Math.abs(batch) + Math.abs(entry)) % max;
-    }
-    return 0;
-  }
-
   private buildGrid(value: string | null): string[][] {
     if (!value || value.length < 81) {
       return [];
@@ -671,81 +602,41 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
   }
 
   private fetchPuzzle(): void {
-    const dataUrl = '/assets/sudoku.json';
-    const id = this.puzzleId();
+    const sessionId = this.sessionId();
+    const playerId = this.playerId();
+    if (!sessionId || !playerId) {
+      this.loadError.set('Missing session or player details.');
+      return;
+    }
 
-    this.http.get<PuzzleAssetEntry[]>(dataUrl).subscribe({
-      next: (puzzles) => {
-        if (!Array.isArray(puzzles) || puzzles.length === 0) {
-          this.loadError.set('No puzzles are available locally.');
-          return;
-        }
+    this.gameSessions.getPuzzle(sessionId, playerId).then((selectedPuzzle) => {
+      const puzzle = selectedPuzzle.puzzle;
+      const originalValues = puzzle.slice(0, 81).split('').map((digit) =>
+        digit === '0' || digit === '.' ? '' : digit,
+      );
+      const originalLocked = puzzle.slice(0, 81).split('').map((digit) => digit !== '0' && digit !== '.');
+      const serverValues = selectedPuzzle.currentValues?.length === 81 ? selectedPuzzle.currentValues : [];
+      const serverLocked = selectedPuzzle.lockedCells?.length === 81 ? selectedPuzzle.lockedCells : [];
 
-        let puzzleIndex = this.choosePuzzleIndex(puzzles.length);
-        if (id != null) {
-          const requestedIndex = Number(id);
-          if (Number.isFinite(requestedIndex) && requestedIndex >= 0 && requestedIndex < puzzles.length) {
-            puzzleIndex = requestedIndex;
-          }
-        }
-
-        const selectedPuzzle = normalizePuzzleEntry(puzzles[puzzleIndex]);
-
-        if (!selectedPuzzle) {
-          this.loadError.set('Invalid puzzle value from local asset.');
-          return;
-        }
-
-        const { puzzle, solution } = selectedPuzzle;
-
-        this.puzzle.set(puzzle);
-        this.solution.set(solution);
-        this.difficulty.set(selectedPuzzle.difficulty ?? this.difficulty());
-
-        const persistedState = this.loadGameState();
-        const restoreState =
-          persistedState &&
-          persistedState.puzzleId === id &&
-          persistedState.currentValues.length === 81 &&
-          persistedState.lockedCells.length === 81;
-
-        if (restoreState) {
-          this.currentValues.set(persistedState.currentValues);
-          this.lockedCells.set(persistedState.lockedCells);
-          this.score.set(persistedState.score);
-          this.lastScoreChange.set(persistedState.lastScoreChange);
-        } else {
-          this.currentValues.set(
-            puzzle.slice(0, 81).split('').map((digit) =>
-              digit === '0' || digit === '.' ? '' : digit,
-            ),
-          );
-          this.lockedCells.set(
-            puzzle.slice(0, 81).split('').map((digit) => digit !== '0' && digit !== '.'),
-          );
-          this.score.set(0);
-          this.lastScoreChange.set('Select a blank cell and type 1-9.');
-        }
-
-        this.selectedCell.set(this.findFirstEditableCell(puzzle));
-        this.saveGameState();
-        this.loadError.set(null);
-        this.persistScore();
-        console.log('Loaded Sudoku puzzle data from local asset', {
-          dataUrl,
-          puzzleIndex,
-          puzzleLength: puzzle.length,
-          solutionLength: solution.length,
-          restored: restoreState,
-        });
-      },
-      error: (error) => {
-        console.error('Failed to load Sudoku data from local asset', {
-          dataUrl,
-          error,
-        });
-        this.loadError.set('Unable to load puzzle data from local assets.');
-      },
+      this.puzzle.set(puzzle);
+      this.puzzleId.set(selectedPuzzle.puzzleId);
+      this.difficulty.set(selectedPuzzle.difficulty);
+      this.currentValues.set(
+        Array.from({ length: 81 }, (_, index) => serverValues[index] || originalValues[index] || ''),
+      );
+      this.lockedCells.set(
+        Array.from({ length: 81 }, (_, index) => originalLocked[index] || Boolean(serverLocked[index])),
+      );
+      this.gameSessions.getSession(sessionId).then((session) => {
+        const player = session?.players.find((currentPlayer) => currentPlayer.id === playerId);
+        this.score.set(player?.score ?? 0);
+      });
+      this.lastScoreChange.set('Select a blank cell and type 1-9.');
+      this.selectedCell.set(this.findFirstEditableCell(puzzle));
+      this.loadError.set(null);
+    }).catch((error) => {
+      console.error('Failed to load Sudoku puzzle from server', error);
+      this.loadError.set('Unable to load puzzle data from the server.');
     });
   }
 
@@ -783,7 +674,6 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       this.gameStatus.set('finished');
       this.timerLabel.set('00:00');
       this.countdownLabel.set('Time over');
-      this.persistScore();
       return;
     }
 
@@ -806,12 +696,13 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     this.selectedCell.set(index);
   }
 
-  private updateCell(index: number, nextValue: string): void {
+  private async updateCell(index: number, nextValue: string): Promise<void> {
+    const sessionId = this.sessionId();
+    const playerId = this.playerId();
     const puzzle = this.puzzle();
-    const solution = this.solution();
     const currentValues = [...this.currentValues()];
     const lockedCells = [...this.lockedCells()];
-    if (!puzzle || !solution || currentValues.length < 81 || lockedCells.length < 81) {
+    if (!sessionId || !playerId || !puzzle || currentValues.length < 81 || lockedCells.length < 81) {
       return;
     }
 
@@ -823,27 +714,32 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     const previousValue = currentValues[index] ?? '';
     currentValues[index] = nextValue;
     this.currentValues.set(currentValues);
+    this.lastScoreChange.set('Checking move...');
 
-    const expectedValue = solution[index];
-    const wasCorrect = previousValue !== '' && previousValue === expectedValue;
-    const isCorrect = nextValue === expectedValue;
+    try {
+      const result = await this.gameSessions.submitMove({
+        sessionId,
+        playerId,
+        cellIndex: index,
+        value: nextValue,
+        clientMoveId: `move-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      });
 
-    if (!wasCorrect && isCorrect) {
-      lockedCells[index] = true;
-      this.lockedCells.set(lockedCells);
-      this.score.update((score) => score + 150);
-      this.lastScoreChange.set(`Correct move: +150`);
-      this.persistScore();
-      this.saveGameState();
-      this.selectedCell.set(this.findNextEditableCell(index));
-      return;
-    }
+      this.score.set(result.score);
+      if (result.isCorrect) {
+        lockedCells[index] = true;
+        this.lockedCells.set(lockedCells);
+        this.lastScoreChange.set(`Correct move: +${result.scoreDelta}`);
+        this.selectedCell.set(this.findNextEditableCell(index));
+        return;
+      }
 
-    if (previousValue !== nextValue && !isCorrect) {
-      this.score.update((score) => score - 80);
-      this.lastScoreChange.set(`Wrong move: -80`);
-      this.persistScore();
-      this.saveGameState();
+      this.lastScoreChange.set(`Wrong move: ${result.scoreDelta}`);
+    } catch (error) {
+      console.error('Failed to submit move', error);
+      currentValues[index] = previousValue;
+      this.currentValues.set(currentValues);
+      this.lastScoreChange.set('Move was rejected by the server.');
     }
   }
 
@@ -863,20 +759,6 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     currentValues[index] = '';
     this.currentValues.set(currentValues);
     this.lastScoreChange.set('Cell cleared.');
-    this.persistScore();
-    this.saveGameState();
-  }
-
-  private persistScore(): void {
-    const sessionId = this.sessionId();
-    const playerName = this.username();
-    if (!sessionId) {
-      return;
-    }
-
-    this.gameSessions.updatePlayerScore(sessionId, playerName, this.score()).catch((error) => {
-      console.warn('Could not persist player score', error);
-    });
   }
 
   private findFirstEditableCell(puzzle: string): number | null {

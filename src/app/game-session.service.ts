@@ -1,7 +1,9 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../environments/environment';
 
-export type GameSessionStatus = 'lobby' | 'running' | 'finished';
+export type GameSessionStatus = 'lobby' | 'running' | 'finished' | 'cancelled';
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
 export type GameSessionPlayer = {
@@ -15,36 +17,56 @@ export type GameSessionPlayer = {
 
 export type GameSession = {
   id: string;
-  hostPlayerId: string;
+  hostPlayerId: string | null;
   puzzleId: string;
   difficulty?: Difficulty;
   maxPlayers: number;
   durationMinutes: number;
   status: GameSessionStatus;
-  startAt: number | null;
+  startAt: number;
   createdAt: number;
   updatedAt: number;
   players: GameSessionPlayer[];
 };
 
 export type CreateGameSessionInput = {
-  puzzleId: string;
   maxPlayers: number;
   durationMinutes: number;
-  startAt: number | null;
-  players?: Array<{
-    id?: string;
-    name: string;
-    isHost?: boolean;
-  }>;
+  startBufferSeconds: number;
   difficulty?: Difficulty;
 };
 
 export type JoinGameSessionInput = {
   sessionId: string;
-  playerId?: string;
   playerName: string;
-  isHost?: boolean;
+};
+
+export type PuzzleResponse = {
+  puzzleId: string;
+  puzzle: string;
+  difficulty: Difficulty;
+  currentValues: string[] | null;
+  lockedCells: boolean[] | null;
+};
+
+export type SubmitMoveInput = {
+  sessionId: string;
+  playerId: string;
+  cellIndex: number;
+  value: string;
+  clientMoveId: string;
+};
+
+export type MoveResult = {
+  clientMoveId: string;
+  accepted: boolean;
+  isCorrect: boolean;
+  scoreDelta: number;
+  score: number;
+  lockedCell: {
+    cellIndex: number;
+    value: string;
+  } | null;
 };
 
 export type ScoreboardEntry = {
@@ -53,292 +75,171 @@ export type ScoreboardEntry = {
   updatedAt: number;
 };
 
+type ServerEvent =
+  | {
+      type: 'connected';
+      sessionId: string;
+    }
+  | {
+      type: 'session_updated';
+      session: GameSession;
+    }
+  | {
+      type: 'scoreboard_updated';
+      scoreboard: ScoreboardEntry[];
+    };
+
 export abstract class GameSessionService {
   abstract createSession(input: CreateGameSessionInput): Promise<GameSession>;
   abstract getSession(sessionId: string): Promise<GameSession | null>;
   abstract watchSession(sessionId: string): Observable<GameSession | null>;
   abstract joinSession(input: JoinGameSessionInput): Promise<GameSessionPlayer>;
-  abstract startSession(sessionId: string, startAt: number): Promise<GameSession | null>;
-  abstract finishSession(sessionId: string): Promise<GameSession | null>;
-  abstract updatePlayerScore(
-    sessionId: string,
-    playerName: string,
-    score: number,
-  ): Promise<void>;
+  abstract getPuzzle(sessionId: string, playerId: string): Promise<PuzzleResponse>;
+  abstract submitMove(input: SubmitMoveInput): Promise<MoveResult>;
   abstract getScoreboard(sessionId: string): Promise<ScoreboardEntry[]>;
   abstract watchScoreboard(sessionId: string): Observable<ScoreboardEntry[]>;
 }
 
 @Injectable()
-export class LocalGameSessionService extends GameSessionService {
-  private readonly sessionPrefix = 'sudokofest:sessions:';
-  private readonly scorePrefix = 'sudokofest:session:';
+export class RemoteGameSessionService extends GameSessionService {
+  private readonly http = inject(HttpClient);
+  private readonly apiBaseUrl = environment.apiBaseUrl.replace(/\/$/, '');
+  private readonly socketBaseUrl = this.apiBaseUrl
+    .replace(/^http:\/\//, 'ws://')
+    .replace(/^https:\/\//, 'wss://')
+    .replace(/\/api$/, '');
 
-  async createSession(input: CreateGameSessionInput): Promise<GameSession> {
-    const now = Date.now();
-    const sessionId = this.createId('game');
-    const inputPlayers = input.players ?? [];
-    const hostPlayer = inputPlayers.find((player) => player.isHost) ?? inputPlayers[0];
-    const hostPlayerId = hostPlayer?.id ?? this.createId('player');
-    const players = inputPlayers.map((player, index) => ({
-      id: player.id ?? (index === 0 ? hostPlayerId : this.createId('player')),
-      name: player.name,
-      isHost: player.isHost ?? index === 0,
-      score: 0,
-      joinedAt: now,
-      updatedAt: now,
-    }));
-
-    const session: GameSession = {
-      id: sessionId,
-      hostPlayerId,
-      puzzleId: input.puzzleId,
-      difficulty: input.difficulty,
-      maxPlayers: input.maxPlayers,
-      durationMinutes: input.durationMinutes,
-      status: input.startAt && input.startAt <= now ? 'running' : 'lobby',
-      startAt: input.startAt,
-      createdAt: now,
-      updatedAt: now,
-      players,
-    };
-
-    this.saveSession(session);
-    await Promise.all(players.map((player) => this.updatePlayerScore(session.id, player.name, 0)));
-
-    return session;
+  createSession(input: CreateGameSessionInput): Promise<GameSession> {
+    return firstValue(this.http.post<GameSession>(`${this.apiBaseUrl}/sessions`, input));
   }
 
   async getSession(sessionId: string): Promise<GameSession | null> {
-    return this.readSession(sessionId);
+    try {
+      return await firstValue(this.http.get<GameSession>(`${this.apiBaseUrl}/sessions/${sessionId}`));
+    } catch {
+      return null;
+    }
   }
 
   watchSession(sessionId: string): Observable<GameSession | null> {
     return new Observable((subscriber) => {
-      const emit = () => subscriber.next(this.readSession(sessionId));
-      emit();
+      let closed = false;
 
-      if (typeof window === 'undefined') {
-        return undefined;
-      }
+      this.getSession(sessionId)
+        .then((session) => {
+          if (!closed) {
+            subscriber.next(session);
+          }
+        })
+        .catch((error) => subscriber.error(error));
 
-      const intervalId = window.setInterval(emit, 1000);
-      const handleStorage = (event: StorageEvent) => {
-        if (event.key === `${this.sessionPrefix}${sessionId}`) {
-          emit();
+      const socket = this.openSocket(sessionId);
+      socket.onmessage = (event) => {
+        const message = parseServerEvent(event.data);
+        if (message?.type === 'session_updated') {
+          subscriber.next(message.session);
         }
       };
-      window.addEventListener('storage', handleStorage);
+      socket.onerror = () => subscriber.error(new Error('Session socket failed'));
 
       return () => {
-        window.clearInterval(intervalId);
-        window.removeEventListener('storage', handleStorage);
+        closed = true;
+        socket.close();
       };
     });
   }
 
-  async joinSession(input: JoinGameSessionInput): Promise<GameSessionPlayer> {
-    const session = this.readSession(input.sessionId);
-    if (!session) {
-      throw new Error(`Game session ${input.sessionId} was not found.`);
-    }
-
-    const now = Date.now();
-    const existingPlayer = session.players.find((player) => player.name === input.playerName);
-    if (existingPlayer) {
-      return existingPlayer;
-    }
-
-    if (session.players.length >= session.maxPlayers) {
-      throw new Error('This lobby is full.');
-    }
-
-    const player: GameSessionPlayer = {
-      id: input.playerId ?? this.createId('player'),
-      name: input.playerName,
-      isHost: input.isHost ?? session.players.length === 0,
-      score: 0,
-      joinedAt: now,
-      updatedAt: now,
-    };
-
-    const nextSession = {
-      ...session,
-      updatedAt: now,
-      players: [...session.players, player],
-    };
-
-    this.saveSession(nextSession);
-    await this.updatePlayerScore(session.id, player.name, player.score);
-    return player;
+  joinSession(input: JoinGameSessionInput): Promise<GameSessionPlayer> {
+    return firstValue(
+      this.http.post<GameSessionPlayer>(
+        `${this.apiBaseUrl}/sessions/${input.sessionId}/join`,
+        {
+          playerName: input.playerName,
+        },
+      ),
+    );
   }
 
-  async startSession(sessionId: string, startAt: number): Promise<GameSession | null> {
-    return this.updateSession(sessionId, {
-      status: 'running',
-      startAt,
-    });
+  getPuzzle(sessionId: string, playerId: string): Promise<PuzzleResponse> {
+    return firstValue(
+      this.http.get<PuzzleResponse>(`${this.apiBaseUrl}/sessions/${sessionId}/puzzle`, {
+        params: {
+          playerId,
+        },
+      }),
+    );
   }
 
-  async finishSession(sessionId: string): Promise<GameSession | null> {
-    return this.updateSession(sessionId, {
-      status: 'finished',
-    });
+  submitMove(input: SubmitMoveInput): Promise<MoveResult> {
+    return firstValue(
+      this.http.post<MoveResult>(`${this.apiBaseUrl}/sessions/${input.sessionId}/moves`, {
+        playerId: input.playerId,
+        cellIndex: input.cellIndex,
+        value: input.value,
+        clientMoveId: input.clientMoveId,
+      }),
+    );
   }
 
-  async updatePlayerScore(
-    sessionId: string,
-    playerName: string,
-    score: number,
-  ): Promise<void> {
-    if (!sessionId || typeof localStorage === 'undefined') {
-      return;
-    }
-
-    const session = this.readSession(sessionId);
-    if (session) {
-      const now = Date.now();
-      this.saveSession({
-        ...session,
-        updatedAt: now,
-        players: session.players.map((player) =>
-          player.name === playerName
-            ? {
-                ...player,
-                score,
-                updatedAt: now,
-              }
-            : player,
-        ),
-      });
-    }
-
-    const key = `${this.scorePrefix}${sessionId}`;
-    const entries = this.readScoreEntries(key);
-    const nextEntries = entries.filter((entry) => entry.playerName !== playerName);
-    nextEntries.push({
-      playerName,
-      score,
-      updatedAt: Date.now(),
-    });
-    localStorage.setItem(key, JSON.stringify(nextEntries));
-  }
-
-  async getScoreboard(sessionId: string): Promise<ScoreboardEntry[]> {
-    if (typeof localStorage === 'undefined') {
-      return [];
-    }
-
-    const session = this.readSession(sessionId);
-    const scoresFromSession =
-      session?.players.map((player) => ({
-        playerName: player.name,
-        score: player.score,
-        updatedAt: player.updatedAt,
-      })) ?? [];
-    const storedScores = this.readScoreEntries(`${this.scorePrefix}${sessionId}`);
-    const merged = new Map<string, ScoreboardEntry>();
-
-    for (const entry of [...scoresFromSession, ...storedScores]) {
-      const previous = merged.get(entry.playerName);
-      if (!previous || entry.updatedAt >= previous.updatedAt) {
-        merged.set(entry.playerName, entry);
-      }
-    }
-
-    return [...merged.values()].sort(
-      (a, b) => b.score - a.score || a.playerName.localeCompare(b.playerName),
+  getScoreboard(sessionId: string): Promise<ScoreboardEntry[]> {
+    return firstValue(
+      this.http.get<ScoreboardEntry[]>(`${this.apiBaseUrl}/sessions/${sessionId}/scoreboard`),
     );
   }
 
   watchScoreboard(sessionId: string): Observable<ScoreboardEntry[]> {
     return new Observable((subscriber) => {
-      const emit = () => {
-        this.getScoreboard(sessionId)
-          .then((scoreboard) => subscriber.next(scoreboard))
-          .catch((error) => subscriber.error(error));
-      };
-      emit();
+      let closed = false;
 
-      if (typeof window === 'undefined') {
-        return undefined;
-      }
+      this.getScoreboard(sessionId)
+        .then((scoreboard) => {
+          if (!closed) {
+            subscriber.next(scoreboard);
+          }
+        })
+        .catch((error) => subscriber.error(error));
 
-      const intervalId = window.setInterval(emit, 1000);
-      const handleStorage = (event: StorageEvent) => {
-        if (
-          event.key === `${this.sessionPrefix}${sessionId}` ||
-          event.key === `${this.scorePrefix}${sessionId}`
-        ) {
-          emit();
+      const socket = this.openSocket(sessionId);
+      socket.onmessage = (event) => {
+        const message = parseServerEvent(event.data);
+        if (message?.type === 'scoreboard_updated') {
+          subscriber.next(message.scoreboard);
         }
       };
-      window.addEventListener('storage', handleStorage);
+      socket.onerror = () => subscriber.error(new Error('Scoreboard socket failed'));
 
       return () => {
-        window.clearInterval(intervalId);
-        window.removeEventListener('storage', handleStorage);
+        closed = true;
+        socket.close();
       };
     });
   }
 
-  private updateSession(
-    sessionId: string,
-    patch: Pick<Partial<GameSession>, 'status' | 'startAt'>,
-  ): GameSession | null {
-    const session = this.readSession(sessionId);
-    if (!session) {
-      return null;
-    }
+  private openSocket(sessionId: string): WebSocket {
+    return new WebSocket(`${this.socketBaseUrl}/ws/${sessionId}`);
+  }
+}
 
-    const nextSession = {
-      ...session,
-      ...patch,
-      updatedAt: Date.now(),
-    };
-    this.saveSession(nextSession);
-    return nextSession;
+function firstValue<T>(observable: Observable<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const subscription = observable.subscribe({
+      next: (value) => {
+        resolve(value);
+        subscription.unsubscribe();
+      },
+      error: reject,
+    });
+  });
+}
+
+function parseServerEvent(raw: unknown): ServerEvent | null {
+  if (typeof raw !== 'string') {
+    return null;
   }
 
-  private readSession(sessionId: string): GameSession | null {
-    if (typeof localStorage === 'undefined') {
-      return null;
-    }
-
-    const raw = localStorage.getItem(`${this.sessionPrefix}${sessionId}`);
-    if (!raw) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(raw) as GameSession;
-    } catch {
-      return null;
-    }
-  }
-
-  private saveSession(session: GameSession): void {
-    if (typeof localStorage === 'undefined') {
-      return;
-    }
-
-    localStorage.setItem(`${this.sessionPrefix}${session.id}`, JSON.stringify(session));
-  }
-
-  private readScoreEntries(key: string): ScoreboardEntry[] {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      return [];
-    }
-
-    try {
-      return JSON.parse(raw) as ScoreboardEntry[];
-    } catch {
-      return [];
-    }
-  }
-
-  private createId(prefix: string): string {
-    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    return JSON.parse(raw) as ServerEvent;
+  } catch {
+    return null;
   }
 }

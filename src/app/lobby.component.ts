@@ -13,6 +13,7 @@ type GameTokenPayload = {
   startAt: number;
   createdAt: number;
   playerIndex: number;
+  playerId: string;
   playerName: string;
   totalPlayers: number;
   sessionId: string;
@@ -309,6 +310,7 @@ export class LobbyComponent implements OnInit, OnDestroy {
         startAt: refreshedSession.startAt ?? Date.now(),
         createdAt: refreshedSession.createdAt,
         playerIndex,
+        playerId: player.id,
         playerName: player.name,
         totalPlayers: refreshedSession.maxPlayers,
         sessionId: refreshedSession.id,

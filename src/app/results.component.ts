@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { GameSessionService, type ScoreboardEntry } from './game-session.service';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
@@ -144,9 +145,10 @@ type GameTokenPayload = {
     `,
   ],
 })
-export class ResultsComponent implements OnInit {
+export class ResultsComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly gameSessions = inject(GameSessionService);
+  private scoreboardSubscription: Subscription | null = null;
 
   readonly error = signal<string | null>(null);
   readonly payload = signal<GameTokenPayload | null>(null);
@@ -185,6 +187,10 @@ export class ResultsComponent implements OnInit {
     }
   }
 
+  ngOnDestroy(): void {
+    this.scoreboardSubscription?.unsubscribe();
+  }
+
   private decodeToken(token: string): GameTokenPayload {
     const padded = token.replace(/-/g, '+').replace(/_/g, '/');
     const padLength = (4 - (padded.length % 4)) % 4;
@@ -214,11 +220,13 @@ export class ResultsComponent implements OnInit {
   }
 
   private loadResults(sessionId: string): void {
-    this.gameSessions.getScoreboard(sessionId)
-      .then((results) => this.results.set(results))
-      .catch((error) => {
+    this.scoreboardSubscription = this.gameSessions.watchScoreboard(sessionId)
+      .subscribe({
+        next: (results) => this.results.set(results),
+        error: (error) => {
         console.error('Failed to load shared results', error);
         this.error.set('Could not load results for this game.');
+        },
       });
   }
 }
