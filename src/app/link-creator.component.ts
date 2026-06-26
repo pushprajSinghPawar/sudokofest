@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { GameSessionService, type Difficulty as SessionDifficulty } from './game-session.service';
@@ -163,6 +163,12 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
         box-shadow: 0 16px 40px rgba(79, 70, 229, 0.45);
       }
 
+      .primary-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+        box-shadow: none;
+      }
+
       .secondary-button,
       .copy-button,
       .open-link {
@@ -268,9 +274,12 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
     `,
   ],
 })
-export class LinkCreatorComponent {
+export class LinkCreatorComponent implements OnDestroy {
   private readonly router = inject(Router);
   private readonly gameSessions = inject(GameSessionService);
+  private cooldownTimer: number | null = null;
+
+  private static readonly CREATE_COOLDOWN_SECONDS = 15;
 
   readonly playerCount = signal(2);
   readonly difficulty = signal<CreatorDifficulty>('any');
@@ -282,6 +291,23 @@ export class LinkCreatorComponent {
   readonly inviteLink = signal<PlayerLink | null>(null);
   readonly copyStatus = signal<string | null>(null);
   readonly isCreating = signal(false);
+  readonly createCooldownSeconds = signal(0);
+
+  readonly canCreateLobby = computed(
+    () => !this.isCreating() && this.createCooldownSeconds() === 0,
+  );
+  readonly createButtonLabel = computed(() => {
+    if (this.isCreating()) {
+      return 'Creating lobby...';
+    }
+
+    const cooldown = this.createCooldownSeconds();
+    if (cooldown > 0) {
+      return `Create lobby link (${cooldown}s)`;
+    }
+
+    return 'Create lobby link';
+  });
 
   private origin(): string {
     return typeof window !== 'undefined' && window.location ? window.location.origin : '';
@@ -303,6 +329,10 @@ export class LinkCreatorComponent {
   readonly bufferOptions = [5, 10, 15, 20, 30, 45, 60];
   readonly durationOptions = [0.5, 1, ...Array.from({ length: 9 }, (_, index) => index + 2)];
   readonly difficultyOptions: CreatorDifficulty[] = ['any', 'easy', 'medium', 'hard'];
+
+  ngOnDestroy(): void {
+    this.clearCreateCooldown();
+  }
 
   formatDurationOption(minutes: number): string {
     if (minutes < 1) {
@@ -349,7 +379,7 @@ export class LinkCreatorComponent {
   }
 
   createLobbyLink(): void {
-    if (this.isCreating()) {
+    if (!this.canCreateLobby()) {
       return;
     }
 
@@ -384,6 +414,7 @@ export class LinkCreatorComponent {
     });
     this.copyStatus.set(null);
     this.isCreating.set(false);
+    this.startCreateCooldown();
 
     console.log('Created multiplayer Sudoku lobby', {
       sessionId: session.id,
@@ -391,6 +422,33 @@ export class LinkCreatorComponent {
       maxPlayers: this.playerCount(),
       startAt: new Date(session.startAt).toISOString(),
     });
+  }
+
+  private startCreateCooldown(): void {
+    this.clearCreateCooldown();
+    this.createCooldownSeconds.set(LinkCreatorComponent.CREATE_COOLDOWN_SECONDS);
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    this.cooldownTimer = window.setInterval(() => {
+      const nextValue = this.createCooldownSeconds() - 1;
+      if (nextValue <= 0) {
+        this.createCooldownSeconds.set(0);
+        this.clearCreateCooldown();
+        return;
+      }
+
+      this.createCooldownSeconds.set(nextValue);
+    }, 1000);
+  }
+
+  private clearCreateCooldown(): void {
+    if (this.cooldownTimer != null) {
+      window.clearInterval(this.cooldownTimer);
+      this.cooldownTimer = null;
+    }
   }
 
   async copyInviteLink(): Promise<void> {

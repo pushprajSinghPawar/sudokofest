@@ -74,8 +74,13 @@
   </div>
 
   <div class="actions-row">
-    <button class="primary-button" type="button" (click)="createLobbyLink()">
-      <span>Create lobby link</span>
+    <button
+      class="primary-button"
+      type="button"
+      (click)="createLobbyLink()"
+      [disabled]="!canCreateLobby()"
+    >
+      <span>{{ createButtonLabel() }}</span>
     </button>
   </div>
 

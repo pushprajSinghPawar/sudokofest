@@ -1,0 +1,3 @@
+cd  <where u have the git repo>/git/sudokofest/Frontend/sudokofest
+npm run start:api
+npm run start:web

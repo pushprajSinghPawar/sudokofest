@@ -1,14 +1,16 @@
+import 'dotenv/config';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { initializeFirebaseStore, readStoreFromFirebase, writeStoreToFirebase } from './firebase.mjs';
+import { createPlayerToken, verifyPlayerToken } from './player-token.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, 'data');
 const PUZZLES_FILE = join(DATA_DIR, 'sudoku.json');
-const SESSIONS_FILE = join(DATA_DIR, 'sessions.json');
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
 const FULL_MASK = 0b1111111110;
 const ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -59,7 +61,6 @@ app.post('/api/sessions', async (request, reply) => {
     updatedAt: now,
     players: [],
     playerStates: {},
-    moves: [],
   };
 
   store.sessions[sessionId] = session;
@@ -71,7 +72,7 @@ app.post('/api/sessions', async (request, reply) => {
 });
 
 app.get('/api/sessions/:sessionId', async (request, reply) => {
-  const session = await getSession(request.params.sessionId);
+  const session = await getSession(request.params.sessionId, { sync: true });
   if (!session) {
     reply.code(404);
     return { message: 'Session not found' };
@@ -97,9 +98,10 @@ app.post('/api/sessions/:sessionId/join', async (request, reply) => {
     return { message: 'Session not found' };
   }
 
+  syncSessionLifecycle(session);
   const existingPlayer = session.players.find((player) => player.name === playerName);
   if (existingPlayer) {
-    return existingPlayer;
+    return withPlayerToken(sessionId, existingPlayer);
   }
 
   if (session.players.length >= session.maxPlayers) {
@@ -134,11 +136,11 @@ app.post('/api/sessions/:sessionId/join', async (request, reply) => {
   broadcastScoreboard(sessionId);
 
   reply.code(201);
-  return player;
+  return withPlayerToken(sessionId, player);
 });
 
 app.get('/api/sessions/:sessionId/puzzle', async (request, reply) => {
-  const session = await getSession(request.params.sessionId);
+  const session = await getSession(request.params.sessionId, { sync: true });
   if (!session) {
     reply.code(404);
     return { message: 'Session not found' };
@@ -150,8 +152,14 @@ app.get('/api/sessions/:sessionId/puzzle', async (request, reply) => {
     return { message: 'Puzzle not found' };
   }
 
-  const playerId = request.query?.playerId;
-  const playerState = typeof playerId === 'string' ? session.playerStates[playerId] : null;
+  const playerToken = request.query?.playerToken;
+  const resolvedPlayer = resolvePlayerFromToken(session, request.params.sessionId, playerToken);
+  if (!resolvedPlayer) {
+    reply.code(403);
+    return { message: 'Invalid or missing player token' };
+  }
+
+  const playerState = session.playerStates[resolvedPlayer.playerId] ?? null;
 
   return {
     puzzleId: puzzle.id,
@@ -165,12 +173,17 @@ app.get('/api/sessions/:sessionId/puzzle', async (request, reply) => {
 app.post('/api/sessions/:sessionId/moves', async (request, reply) => {
   const sessionId = request.params.sessionId;
   const body = request.body ?? {};
-  const playerId = String(body.playerId ?? '');
+  const playerToken = String(body.playerToken ?? '');
   const cellIndex = Number(body.cellIndex);
   const value = String(body.value ?? '');
   const clientMoveId = String(body.clientMoveId ?? '');
 
-  if (!playerId || !Number.isInteger(cellIndex) || cellIndex < 0 || cellIndex > 80 || !/^[1-9]$/.test(value)) {
+  if (!playerToken) {
+    reply.code(400);
+    return { message: 'Invalid move payload' };
+  }
+
+  if (!Number.isInteger(cellIndex) || cellIndex < 0 || cellIndex > 80 || !/^[1-9]$/.test(value)) {
     reply.code(400);
     return { message: 'Invalid move payload' };
   }
@@ -182,22 +195,29 @@ app.post('/api/sessions/:sessionId/moves', async (request, reply) => {
     return { message: 'Session not found' };
   }
 
+  const resolvedPlayer = resolvePlayerFromToken(session, sessionId, playerToken);
+  if (!resolvedPlayer) {
+    reply.code(403);
+    return { message: 'Invalid or missing player token' };
+  }
+
+  const playerId = resolvedPlayer.playerId;
   const player = session.players.find((currentPlayer) => currentPlayer.id === playerId);
   if (!player) {
     reply.code(403);
     return { message: 'Player is not in this session' };
   }
 
-  const previousMove = clientMoveId
-    ? session.moves.find((move) => move.playerId === playerId && move.clientMoveId === clientMoveId)
-    : null;
-  if (previousMove) {
-    return toMoveResponse(previousMove, player);
-  }
-
   const now = Date.now();
-  const roundEnd = session.startAt + session.durationMinutes * 60_000;
-  if (now < session.startAt || now >= roundEnd) {
+  const statusChanged = syncSessionLifecycle(session);
+  if (session.status !== 'running') {
+    if (statusChanged) {
+      await writeStore(store);
+      broadcastSession(sessionId);
+      if (session.status === 'finished') {
+        broadcastScoreboard(sessionId);
+      }
+    }
     reply.code(409);
     return { message: 'The game is not accepting moves right now' };
   }
@@ -232,36 +252,49 @@ app.post('/api/sessions/:sessionId/moves', async (request, reply) => {
     playerState.lockedCells[cellIndex] = true;
   }
 
-  const move = {
-    id: createMoveId(session),
+  const moveResult = {
     clientMoveId,
-    sessionId,
-    playerId,
     cellIndex,
     value,
     isCorrect,
     scoreDelta,
-    scoreAfter,
-    createdAt: now,
   };
-  session.moves.push(move);
   session.updatedAt = now;
 
   await writeStore(store);
   broadcastSession(sessionId);
   broadcastScoreboard(sessionId);
 
-  return toMoveResponse(move, player);
+  return toMoveResponse(moveResult, player);
 });
 
 app.get('/api/sessions/:sessionId/scoreboard', async (request, reply) => {
-  const session = await getSession(request.params.sessionId);
+  const session = await getSession(request.params.sessionId, { sync: true });
   if (!session) {
     reply.code(404);
     return { message: 'Session not found' };
   }
 
   return toScoreboard(session);
+});
+
+app.post('/api/sessions/:sessionId/finalize', async (request, reply) => {
+  const sessionId = request.params.sessionId;
+  const store = await readStore();
+  const session = store.sessions[sessionId];
+  if (!session) {
+    reply.code(404);
+    return { message: 'Session not found' };
+  }
+
+  const changed = syncSessionLifecycle(session);
+  if (changed) {
+    await writeStore(store);
+    broadcastSession(sessionId);
+    broadcastScoreboard(sessionId);
+  }
+
+  return toPublicSession(session);
 });
 
 app.get('/ws/:sessionId', { websocket: true }, (socket, request) => {
@@ -275,7 +308,7 @@ app.get('/ws/:sessionId', { websocket: true }, (socket, request) => {
     sessionId,
   });
 
-  getSession(sessionId).then((session) => {
+  getSession(sessionId, { sync: true }).then((session) => {
     if (session) {
       sendSocket(socket, {
         type: 'session_updated',
@@ -299,6 +332,7 @@ app.get('/ws/:sessionId', { websocket: true }, (socket, request) => {
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? '0.0.0.0';
 await ensureDataDir();
+await initializeCloudStorage();
 await app.listen({ port, host });
 
 async function loadPuzzles() {
@@ -366,33 +400,82 @@ async function getPuzzleById(puzzleId) {
 
 async function ensureDataDir() {
   await mkdir(DATA_DIR, { recursive: true });
-  try {
-    await readFile(SESSIONS_FILE, 'utf-8');
-  } catch {
-    await writeStore({ sessions: {} });
-  }
+}
+
+async function initializeCloudStorage() {
+  await initializeFirebaseStore();
+  console.log('✓ Firebase Realtime Database connected');
 }
 
 async function readStore() {
-  await ensureDataDir();
-  try {
-    const raw = await readFile(SESSIONS_FILE, 'utf-8');
-    return JSON.parse(raw);
-  } catch {
-    return { sessions: {} };
-  }
+  const store = await readStoreFromFirebase();
+  console.log('✓ Loaded sessions from Firebase');
+  return store;
+}
+
+function compactSessionStore(store) {
+  const sessions = store?.sessions && typeof store.sessions === 'object' ? store.sessions : {};
+
+  return {
+    sessions: Object.fromEntries(
+      Object.entries(sessions).map(([sessionId, session]) => {
+        const { moves, ...compactSession } = session && typeof session === 'object' ? session : {};
+        return [sessionId, compactSession];
+      }),
+    ),
+  };
 }
 
 async function writeStore(store) {
-  await mkdir(DATA_DIR, { recursive: true });
-  const tempFile = `${SESSIONS_FILE}.tmp`;
-  await writeFile(tempFile, JSON.stringify(store, null, 2));
-  await rename(tempFile, SESSIONS_FILE);
+  const compactStore = compactSessionStore(store);
+  await writeStoreToFirebase(compactStore);
+  console.log('✓ Saved sessions to Firebase');
 }
 
-async function getSession(sessionId) {
+async function getSession(sessionId, { sync = false } = {}) {
   const store = await readStore();
-  return store.sessions[sessionId] ?? null;
+  const session = store.sessions[sessionId] ?? null;
+  if (!session) {
+    return null;
+  }
+
+  if (sync && syncSessionLifecycle(session)) {
+    await writeStore(store);
+    broadcastSession(sessionId);
+    if (session.status === 'finished') {
+      broadcastScoreboard(sessionId);
+    }
+  }
+
+  return session;
+}
+
+function withPlayerToken(sessionId, player) {
+  return {
+    ...player,
+    playerToken: createPlayerToken(sessionId, player),
+  };
+}
+
+function resolvePlayerFromToken(session, sessionId, playerToken) {
+  if (!playerToken) {
+    return null;
+  }
+
+  const payload = verifyPlayerToken(playerToken, sessionId);
+  if (!payload) {
+    return null;
+  }
+
+  const player = session.players.find((currentPlayer) => currentPlayer.id === payload.playerId);
+  if (!player || player.name !== payload.playerName) {
+    return null;
+  }
+
+  return {
+    playerId: payload.playerId,
+    playerName: payload.playerName,
+  };
 }
 
 function toPublicSession(session) {
@@ -403,12 +486,34 @@ function toPublicSession(session) {
     difficulty: session.difficulty,
     maxPlayers: session.maxPlayers,
     durationMinutes: session.durationMinutes,
-    status: currentStatus(session),
+    status: session.status ?? currentStatus(session),
     startAt: session.startAt,
+    endAt: session.endAt ?? null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     players: session.players,
   };
+}
+
+function syncSessionLifecycle(session) {
+  const now = Date.now();
+  const roundEnd = session.startAt + session.durationMinutes * 60_000;
+  let changed = false;
+
+  if (session.status === 'lobby' && now >= session.startAt) {
+    session.status = 'running';
+    session.updatedAt = now;
+    changed = true;
+  }
+
+  if (session.status !== 'finished' && session.status !== 'cancelled' && now >= roundEnd) {
+    session.status = 'finished';
+    session.endAt = roundEnd;
+    session.updatedAt = now;
+    changed = true;
+  }
+
+  return changed;
 }
 
 function currentStatus(session) {
@@ -528,10 +633,6 @@ function createSessionId(existingSessions) {
 
 function createPlayerId(session) {
   return `p${session.players.length + 1}`;
-}
-
-function createMoveId(session) {
-  return `m${session.moves.length + 1}`;
 }
 
 function solveSudoku(puzzle) {

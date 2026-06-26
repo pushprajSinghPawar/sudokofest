@@ -1,122 +1,72 @@
-# SudokuFest (Beginner Guide)
+# SudokuFest
 
-SudokuFest is a multiplayer Sudoku app with:
-- Angular frontend
-- Fastify backend API + WebSocket server
+Host a timed Sudoku round for up to 8 players. Everyone gets the same puzzle and shared countdown; scores update live on a leaderboard.
 
-If you are running this project for the first time, follow the steps below in order.
+**Stack:**
+- **Frontend:** Angular (`src/app/`)
+- **Backend:** Node.js server (`server/server.mjs`) — HTTP REST API (`/api/...`) plus WebSocket (`/ws/:sessionId`) for live lobby and scoreboard updates. Built with [Fastify](https://fastify.dev/).
+- **Database:** Firebase Realtime Database (read/written by the server only; the browser never connects to Firebase)
 
-## 1) What you need before running
+## Requirements
 
-Install these tools:
-- Node.js `22+`
-- npm `10+`
-- Git
+- Node.js 22+
+- npm 10+
+- A Firebase project (web app config + Realtime Database)
 
-Check versions:
-
-```bash
-node --version
-npm --version
-git --version
-```
-
-## 2) Which folder to run commands in
-
-Run commands inside this folder:
-
-```text
-Frontend/sudokofest
-```
-
-Example:
+## Setup
 
 ```bash
-cd /home/pushpraj/git/sudokofest/Frontend/sudokofest
-```
-
-## 3) Install dependencies (first time only)
-
-```bash
+cd Frontend/sudokofest
 npm install
+cp .env.example .env
 ```
 
-## 4) Start the app (you need 2 terminals)
+Edit `.env` with your Firebase values and set `X_MASTER_KEY` (used to sign player session tokens). Never commit `.env`.
 
-Open **Terminal 1** in `Frontend/sudokofest`:
+## Run locally
+
+Use two terminals in `Frontend/sudokofest`:
 
 ```bash
+# Terminal 1 — API (http://localhost:4000)
 npm run start:api
-```
 
-This starts the backend on:
-
-```text
-http://localhost:4000
-```
-
-Open **Terminal 2** in `Frontend/sudokofest`:
-
-```bash
+# Terminal 2 — web app (http://localhost:4200)
 npm run start:web
 ```
 
-This starts the frontend on:
+Open `http://localhost:4200`. If port 4200 is busy: `npx ng serve --port 4300`.
+
+## How it works
+
+1. **Create lobby** — host sets players, timer, difficulty, and gets a short link: `/lobby/{sessionId}`. The create button is disabled for 15 seconds after a link is generated.
+2. **Join** — players open the lobby link, enter a name, and join. Identity is saved in encrypted browser session storage as a server-signed token.
+3. **Play** — game URL is `/game/{sessionId}` (same ID as the lobby). Moves are validated on the server.
+4. **Finish** — when time ends, players see a dialog to download an HTML game report or view `/results/{sessionId}`.
+
+Session status in Firebase moves through `lobby` → `running` → `finished`, with `startAt` and `endAt` timestamps.
+
+## Project layout
 
 ```text
-http://localhost:4200
+server/server.mjs   Node backend (Fastify REST + WebSocket)
+server/firebase.mjs Firebase persistence
+server/data/        sudoku.json puzzle bank
+src/app/            Angular UI
+.env                Local secrets (gitignored)
 ```
 
-Now open your browser and go to `http://localhost:4200`.
+Puzzle answers are never sent to the browser for validation; the API checks every move.
 
-## 5) If it does not start
-
-- Confirm both terminals are still running (no red error text).
-- Make sure you are in `Frontend/sudokofest` before running commands.
-- If port `4200` is busy:
+## Other commands
 
 ```bash
-npx ng serve --port 4300
+npm run build    # production build → dist/sudokofest
+npm test         # unit tests
 ```
 
-Then open `http://localhost:4300`.
+## Troubleshooting
 
-## 6) Build for production (optional)
-
-```bash
-npm run build
-```
-
-Output folder:
-
-```text
-dist/sudokofest
-```
-
-## 7) Run tests (optional)
-
-```bash
-npm test
-```
-
-## 8) Important data files
-
-Backend puzzle and session files:
-
-```text
-server/data/sudoku.json
-server/data/sessions.json
-```
-
-The frontend does not read puzzle answers directly; validation happens on the backend.
-
-## Quick command list
-
-```bash
-cd /home/pushpraj/git/sudokofest/Frontend/sudokofest
-npm install
-npm run start:api
-npm run start:web
-npm run build
-npm test
-```
+- API won't start → check `.env` and Firebase credentials; the server requires Firebase (no local session file fallback).
+- Can't join or play → re-join the lobby to refresh your signed player token in session storage.
+- CORS / connection errors → confirm `npm run start:api` is running on port 4000.

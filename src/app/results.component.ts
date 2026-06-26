@@ -2,22 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { GameSessionService, type ScoreboardEntry } from './game-session.service';
-
-type Difficulty = 'easy' | 'medium' | 'hard';
-
-type GameTokenPayload = {
-  batch: number;
-  entry: number;
-  difficulty?: Difficulty;
-  durationMinutes?: number;
-  startAt?: number;
-  createdAt?: number;
-  playerIndex?: number;
-  playerName?: string;
-  totalPlayers?: number;
-  sessionId?: string;
-};
+import { GameSessionService, type GameSession, type ScoreboardEntry } from './game-session.service';
 
 @Component({
   selector: 'app-results',
@@ -151,60 +136,48 @@ export class ResultsComponent implements OnInit, OnDestroy {
   private scoreboardSubscription: Subscription | null = null;
 
   readonly error = signal<string | null>(null);
-  readonly payload = signal<GameTokenPayload | null>(null);
+  readonly session = signal<GameSession | null>(null);
   readonly results = signal<ScoreboardEntry[]>([]);
   readonly sessionSummary = computed(() => {
-    const payload = this.payload();
-    if (!payload) {
+    const currentSession = this.session();
+    if (!currentSession) {
       return null;
     }
 
-    const difficulty = payload.difficulty ?? 'medium';
-    const totalPlayers = payload.totalPlayers ?? this.results().length;
-    const duration = payload.durationMinutes ?? 10;
+    const difficulty = currentSession.difficulty ?? 'medium';
+    const totalPlayers = currentSession.maxPlayers;
+    const duration = currentSession.durationMinutes;
     return `${totalPlayers} players • ${difficulty} • ${this.formatDuration(duration)}`;
   });
 
   ngOnInit(): void {
-    const token = this.route.snapshot.paramMap.get('token');
-    if (!token) {
-      this.error.set('Missing results token.');
+    const sessionId = this.route.snapshot.paramMap.get('sessionId');
+    if (!sessionId) {
+      this.error.set('Missing session id.');
       return;
     }
 
-    try {
-      const decoded = this.decodeToken(token);
-      this.payload.set(decoded);
-      if (!decoded.sessionId) {
-        this.error.set('Results are not available for this game link.');
-        return;
-      }
-
-      this.loadResults(decoded.sessionId);
-    } catch (error) {
-      console.error('Failed to open results', error);
-      this.error.set('Could not load the results page.');
-    }
+    void this.loadSession(sessionId);
+    this.loadResults(sessionId);
   }
 
   ngOnDestroy(): void {
     this.scoreboardSubscription?.unsubscribe();
   }
 
-  private decodeToken(token: string): GameTokenPayload {
-    const padded = token.replace(/-/g, '+').replace(/_/g, '/');
-    const padLength = (4 - (padded.length % 4)) % 4;
-    const withPadding = padded + '='.repeat(padLength);
-    const decodedRaw = atob(withPadding);
-    if (decodedRaw.trim().startsWith('{')) {
-      return JSON.parse(decodedRaw) as GameTokenPayload;
-    }
+  private async loadSession(sessionId: string): Promise<void> {
+    try {
+      const session = await this.gameSessions.getSession(sessionId);
+      if (!session) {
+        this.error.set('Results are not available for this game session.');
+        return;
+      }
 
-    const [batchStr, entryStr] = decodedRaw.split(':');
-    return {
-      batch: Number(batchStr),
-      entry: Number(entryStr),
-    };
+      this.session.set(session);
+    } catch (error) {
+      console.error('Failed to load session for results', error);
+      this.error.set('Could not load the results page.');
+    }
   }
 
   private formatDuration(minutes: number): string {
@@ -224,8 +197,8 @@ export class ResultsComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (results) => this.results.set(results),
         error: (error) => {
-        console.error('Failed to load shared results', error);
-        this.error.set('Could not load results for this game.');
+          console.error('Failed to load shared results', error);
+          this.error.set('Could not load results for this game.');
         },
       });
   }

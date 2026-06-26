@@ -9,22 +9,9 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { GameSessionService, type Difficulty } from './game-session.service';
-
-type GameTokenPayload = {
-  batch: number;
-  entry: number;
-  difficulty?: Difficulty;
-  durationMinutes?: number;
-  startAt?: number;
-  createdAt?: number;
-  playerIndex?: number;
-  playerId?: string;
-  playerName?: string;
-  totalPlayers?: number;
-  sessionId?: string;
-  puzzleId?: string;
-};
+import { GameSessionService, type Difficulty, type GameSession, type ScoreboardEntry } from './game-session.service';
+import { downloadGameReport } from './game-report';
+import { readPlayerSessionFor } from './player-session.storage';
 
 @Component({
   selector: 'app-sudoku-game',
@@ -258,8 +245,14 @@ type GameTokenPayload = {
         background: rgba(49, 46, 129, 0.3);
       }
 
+      .cell.same-value {
+        border: 2px solid rgba(34, 197, 94, 0.8);
+        background: rgba(34, 197, 94, 0.2);
+      }
+
       .cell.selected {
         background: rgba(79, 70, 229, 0.42);
+        border: 2px solid rgba(34, 197, 94, 0.9);
         box-shadow: inset 0 0 0 2px rgba(196, 181, 253, 0.9);
         transform: scale(0.98);
       }
@@ -300,6 +293,30 @@ type GameTokenPayload = {
 
       .cell.empty {
         color: #4b5563;
+      }
+
+      .completion-message {
+        text-align: center;
+        padding: 1rem;
+        margin-top: 1rem;
+        border-radius: 0.85rem;
+        background: rgba(34, 197, 94, 0.15);
+        border: 1px solid rgba(34, 197, 94, 0.5);
+        color: #86efac;
+        font-weight: 600;
+        font-size: 0.95rem;
+        animation: slideUp 0.3s ease-out;
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       .error {
@@ -376,6 +393,68 @@ type GameTokenPayload = {
           margin-bottom: 0.9rem;
         }
       }
+
+      .finish-dialog-backdrop {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.25rem;
+        background: rgba(2, 6, 23, 0.78);
+        backdrop-filter: blur(8px);
+        z-index: 20;
+      }
+
+      .finish-dialog {
+        width: min(100%, 460px);
+        border-radius: 1.25rem;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(15, 23, 42, 0.98);
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.85);
+        padding: 1.5rem;
+      }
+
+      .finish-dialog h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1.5rem;
+        letter-spacing: -0.03em;
+      }
+
+      .finish-dialog p {
+        margin: 0 0 1.25rem;
+        color: #94a3b8;
+        font-size: 0.95rem;
+      }
+
+      .finish-dialog-actions {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .finish-primary-button,
+      .finish-secondary-button {
+        appearance: none;
+        border: none;
+        cursor: pointer;
+        border-radius: 999px;
+        padding: 0.85rem 1.2rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        text-decoration: none;
+        text-align: center;
+      }
+
+      .finish-primary-button {
+        color: #fff;
+        background-image: linear-gradient(135deg, #f97316, #ec4899, #6366f1);
+      }
+
+      .finish-secondary-button {
+        color: #e5e7eb;
+        background: rgba(15, 23, 42, 0.82);
+        border: 1px solid rgba(129, 140, 248, 0.45);
+      }
     `,
   ],
 })
@@ -384,12 +463,11 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly gameSessions = inject(GameSessionService);
   private timerHandle: number | null = null;
-
-  private readonly batch = signal<number | null>(null);
-  private readonly entry = signal<number | null>(null);
+  private finishHandled = false;
 
   readonly username = signal('Guest Player');
   readonly playerId = signal<string | null>(null);
+  readonly playerToken = signal<string | null>(null);
   readonly difficulty = signal<Difficulty>('medium');
   readonly totalPlayers = signal(1);
   readonly puzzle = signal<string | null>(null);
@@ -401,16 +479,16 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
   readonly currentValues = signal<string[]>([]);
   readonly lockedCells = signal<boolean[]>([]);
   readonly startAt = signal<number | null>(null);
+  readonly endAt = signal<number | null>(null);
   readonly createdAt = signal<number | null>(null);
   readonly durationMinutes = signal(2);
   readonly gameStatus = signal<'waiting' | 'running' | 'finished'>('waiting');
   readonly countdownLabel = signal('Waiting to start');
   readonly sessionId = signal<string | null>(null);
   readonly puzzleId = signal<string | null>(null);
-  readonly resultRoute = computed(() => {
-    const token = this.route.snapshot.paramMap.get('token');
-    return token ? this.router.serializeUrl(this.router.createUrlTree(['/results', token])) : null;
-  });
+  readonly showFinishDialog = signal(false);
+  readonly finishedSession = signal<GameSession | null>(null);
+  readonly scoreboard = signal<ScoreboardEntry[]>([]);
 
   readonly puzzleGrid = computed(() => this.buildGrid(this.puzzle()));
   readonly puzzleCells = computed(() => {
@@ -422,6 +500,8 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     if (!puzzle || currentValues.length < 81 || lockedCells.length < 81) {
       return [];
     }
+
+    const selectedValue = selectedCell != null ? currentValues[selectedCell] : null;
 
     return Array.from({ length: 81 }, (_, index) => {
       const rowIndex = Math.floor(index / 9);
@@ -446,6 +526,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
         (selectedRow === rowIndex ||
           selectedCol === colIndex ||
           selectedBox === boxIndex);
+      const sameValue = selectedValue != null && value === selectedValue && value !== '' && !isSelected;
       const correct = !originalFixed && lockedCells[index];
       const incorrect = editable && value !== '';
 
@@ -459,18 +540,22 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
         isEmpty,
         isSelected,
         related,
+        sameValue,
         correct,
         incorrect,
       };
     });
   });
-  readonly selectedBatch = computed(() => this.batch());
-  readonly selectedEntry = computed(() => this.entry());
+  readonly isAllFilled = computed(() => {
+    const currentValues = this.currentValues();
+    if (currentValues.length < 81) {
+      return false;
+    }
+    return currentValues.every((value) => value !== '');
+  });
 
   ngOnInit(): void {
-    this.decodeToken();
-    this.ensureSessionPlayer();
-    this.fetchPuzzle();
+    void this.initializeGame();
     this.startClock();
   }
 
@@ -526,67 +611,53 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     }
   }
 
-  private decodeToken(): void {
-    const token = this.route.snapshot.paramMap.get('token');
-    if (!token) {
-      this.loadError.set('Missing game token in the URL.');
+  private async initializeGame(): Promise<void> {
+    const routeSessionId = this.route.snapshot.paramMap.get('sessionId');
+    if (!routeSessionId) {
+      this.loadError.set('Missing game session id.');
       return;
     }
+
+    const storedPlayer = await readPlayerSessionFor(routeSessionId);
+    if (!storedPlayer) {
+      this.loadError.set('Join the lobby first to start playing.');
+      await this.router.navigate(['/lobby', routeSessionId]);
+      return;
+    }
+
+    this.sessionId.set(routeSessionId);
+    this.playerId.set(storedPlayer.playerId);
+    this.playerToken.set(storedPlayer.playerToken);
+    this.username.set(storedPlayer.playerName);
 
     try {
-      let decodedRaw = token;
-      if (typeof atob !== 'undefined') {
-        const padded = token.replace(/-/g, '+').replace(/_/g, '/');
-        const padLength = (4 - (padded.length % 4)) % 4;
-        const withPadding = padded + '='.repeat(padLength);
-        decodedRaw = atob(withPadding);
+      const session = await this.gameSessions.getSession(routeSessionId);
+      if (!session) {
+        this.loadError.set('Game session not found.');
+        return;
       }
 
-      let payload: GameTokenPayload;
-      if (decodedRaw.trim().startsWith('{')) {
-        payload = JSON.parse(decodedRaw) as GameTokenPayload;
-      } else {
-        const [batchStr, entryStr] = decodedRaw.split(':');
-        payload = {
-          batch: Number(batchStr),
-          entry: Number(entryStr),
-        };
+      this.difficulty.set(session.difficulty ?? 'medium');
+      this.totalPlayers.set(session.maxPlayers);
+      this.durationMinutes.set(session.durationMinutes);
+      this.startAt.set(session.startAt ?? Date.now());
+      this.endAt.set(session.endAt ?? null);
+      this.createdAt.set(session.createdAt);
+      this.puzzleId.set(session.puzzleId ?? null);
+      if (session.status === 'finished') {
+        this.finishHandled = true;
+        this.gameStatus.set('finished');
+        this.endAt.set(session.endAt ?? null);
+        await this.fetchPuzzle();
+        await this.openFinishDialog(session);
+        return;
       }
 
-      const batch = Number(payload.batch);
-      const entry = Number(payload.entry);
-
-      if (!Number.isFinite(batch) || !Number.isFinite(entry)) {
-        throw new Error('Invalid token payload');
-      }
-
-      this.batch.set(batch);
-      this.entry.set(entry);
-      this.username.set(payload.playerName?.trim() || 'Guest Player');
-      this.playerId.set(payload.playerId ?? null);
-      this.difficulty.set(payload.difficulty ?? 'medium');
-      this.totalPlayers.set(payload.totalPlayers ?? 1);
-      this.durationMinutes.set(payload.durationMinutes ?? 2);
-      this.startAt.set(payload.startAt ?? Date.now());
-      this.createdAt.set(payload.createdAt ?? Date.now());
-      this.sessionId.set(payload.sessionId ?? null);
-      this.puzzleId.set(payload.puzzleId ?? null);
-    } catch (e) {
-      console.error('Failed to decode token', e);
-      this.loadError.set('Invalid game link token.');
+      await this.fetchPuzzle();
+    } catch (error) {
+      console.error('Failed to load game session', error);
+      this.loadError.set('Unable to load game session from the server.');
     }
-  }
-
-  private ensureSessionPlayer(): void {
-    const sessionId = this.sessionId();
-    const playerName = this.username();
-    if (!sessionId || !playerName) {
-      return;
-    }
-
-    this.gameSessions.joinSession({ sessionId, playerName }).catch((error) => {
-      console.warn('Could not register player in local game session', error);
-    });
   }
 
   private buildGrid(value: string | null): string[][] {
@@ -601,15 +672,16 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     return rows;
   }
 
-  private fetchPuzzle(): void {
+  private async fetchPuzzle(): Promise<void> {
     const sessionId = this.sessionId();
-    const playerId = this.playerId();
-    if (!sessionId || !playerId) {
+    const playerToken = this.playerToken();
+    if (!sessionId || !playerToken) {
       this.loadError.set('Missing session or player details.');
       return;
     }
 
-    this.gameSessions.getPuzzle(sessionId, playerId).then((selectedPuzzle) => {
+    try {
+      const selectedPuzzle = await this.gameSessions.getPuzzle(sessionId, playerToken);
       const puzzle = selectedPuzzle.puzzle;
       const originalValues = puzzle.slice(0, 81).split('').map((digit) =>
         digit === '0' || digit === '.' ? '' : digit,
@@ -627,17 +699,16 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       this.lockedCells.set(
         Array.from({ length: 81 }, (_, index) => originalLocked[index] || Boolean(serverLocked[index])),
       );
-      this.gameSessions.getSession(sessionId).then((session) => {
-        const player = session?.players.find((currentPlayer) => currentPlayer.id === playerId);
-        this.score.set(player?.score ?? 0);
-      });
+      const session = await this.gameSessions.getSession(sessionId);
+      const player = session?.players.find((currentPlayer) => currentPlayer.id === this.playerId());
+      this.score.set(player?.score ?? 0);
       this.lastScoreChange.set('Select a blank cell and type 1-9.');
       this.selectedCell.set(this.findFirstEditableCell(puzzle));
       this.loadError.set(null);
-    }).catch((error) => {
+    } catch (error) {
       console.error('Failed to load Sudoku puzzle from server', error);
       this.loadError.set('Unable to load puzzle data from the server.');
-    });
+    }
   }
 
   private startClock(): void {
@@ -671,7 +742,10 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     }
 
     if (now >= roundEnd) {
-      this.gameStatus.set('finished');
+      if (this.gameStatus() !== 'finished') {
+        this.gameStatus.set('finished');
+        void this.handleGameFinished();
+      }
       this.timerLabel.set('00:00');
       this.countdownLabel.set('Time over');
       return;
@@ -696,13 +770,73 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     this.selectedCell.set(index);
   }
 
+  downloadReport(): void {
+    const session = this.finishedSession();
+    const puzzle = this.puzzle();
+    const currentValues = this.currentValues();
+    if (!session || !puzzle || currentValues.length < 81) {
+      return;
+    }
+
+    downloadGameReport({
+      session,
+      playerName: this.username(),
+      playerScore: this.score(),
+      puzzle,
+      currentValues,
+      scoreboard: this.scoreboard(),
+    });
+  }
+
+  viewResults(): void {
+    const sessionId = this.sessionId();
+    if (!sessionId) {
+      return;
+    }
+
+    void this.router.navigate(['/results', sessionId]);
+  }
+
+  private async handleGameFinished(): Promise<void> {
+    if (this.finishHandled) {
+      return;
+    }
+
+    this.finishHandled = true;
+    const sessionId = this.sessionId();
+    if (!sessionId) {
+      return;
+    }
+
+    try {
+      const session = await this.gameSessions.finalizeSession(sessionId);
+      await this.openFinishDialog(session);
+    } catch (error) {
+      console.error('Failed to finalize game session', error);
+      const session = await this.gameSessions.getSession(sessionId);
+      if (session) {
+        await this.openFinishDialog(session);
+        return;
+      }
+      this.showFinishDialog.set(true);
+    }
+  }
+
+  private async openFinishDialog(session: GameSession): Promise<void> {
+    const scoreboard = await this.gameSessions.getScoreboard(session.id);
+    this.finishedSession.set(session);
+    this.endAt.set(session.endAt ?? null);
+    this.scoreboard.set(scoreboard);
+    this.showFinishDialog.set(true);
+  }
+
   private async updateCell(index: number, nextValue: string): Promise<void> {
     const sessionId = this.sessionId();
-    const playerId = this.playerId();
+    const playerToken = this.playerToken();
     const puzzle = this.puzzle();
     const currentValues = [...this.currentValues()];
     const lockedCells = [...this.lockedCells()];
-    if (!sessionId || !playerId || !puzzle || currentValues.length < 81 || lockedCells.length < 81) {
+    if (!sessionId || !playerToken || !puzzle || currentValues.length < 81 || lockedCells.length < 81) {
       return;
     }
 
@@ -719,7 +853,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     try {
       const result = await this.gameSessions.submitMove({
         sessionId,
-        playerId,
+        playerToken,
         cellIndex: index,
         value: nextValue,
         clientMoveId: `move-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

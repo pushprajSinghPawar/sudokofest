@@ -11,7 +11,7 @@ export const routes: Routes = [
     component: LinkCreatorComponent,
   },
   {
-    path: 'game/:token',
+    path: 'game/:sessionId',
     component: SudokuGameComponent,
   },
   {
@@ -19,7 +19,7 @@ export const routes: Routes = [
     component: LobbyComponent,
   },
   {
-    path: 'results/:token',
+    path: 'results/:sessionId',
     component: ResultsComponent,
   },
   {

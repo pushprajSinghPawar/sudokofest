@@ -36,6 +36,7 @@
             [class.fixed]="item.fixed"
             [class.editable]="item.editable"
             [class.related]="item.related && !item.isSelected"
+            [class.same-value]="item.sameValue"
             [class.selected]="item.isSelected"
             [class.correct]="item.correct"
             [class.incorrect]="item.incorrect"
@@ -46,10 +47,24 @@
           </div>
         }
       </div>
+      <div class="completion-message" *ngIf="isAllFilled() && gameStatus() === 'running'">
+        ✓ All done! Just wait for the timer to stop and the leaderboard to open.
+      </div>
     </div>
   </div>
 
-  <div class="footer-actions" *ngIf="gameStatus() === 'finished' && resultRoute() as route">
-    <a class="result-link" [href]="route">View final results</a>
+  <div class="finish-dialog-backdrop" *ngIf="showFinishDialog()">
+    <div class="finish-dialog" role="dialog" aria-modal="true" aria-labelledby="finish-dialog-title">
+      <h2 id="finish-dialog-title">Game finished</h2>
+      <p>Your round is over. Download a personal HTML report or open the shared scoreboard.</p>
+      <div class="finish-dialog-actions">
+        <button class="finish-primary-button" type="button" (click)="downloadReport()">
+          Download game report
+        </button>
+        <button class="finish-secondary-button" type="button" (click)="viewResults()">
+          See game results
+        </button>
+      </div>
+    </div>
   </div>
 </section>

@@ -4,21 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { GameSessionService, type GameSession } from './game-session.service';
-
-type GameTokenPayload = {
-  batch: number;
-  entry: number;
-  difficulty?: 'easy' | 'medium' | 'hard';
-  durationMinutes: number;
-  startAt: number;
-  createdAt: number;
-  playerIndex: number;
-  playerId: string;
-  playerName: string;
-  totalPlayers: number;
-  sessionId: string;
-  puzzleId?: string;
-};
+import { readPlayerSessionFor, savePlayerSession } from './player-session.storage';
 
 @Component({
   selector: 'app-lobby',
@@ -252,6 +238,8 @@ export class LobbyComponent implements OnInit, OnDestroy {
       return;
     }
 
+    void this.loadStoredPlayer(sessionId);
+
     this.sessionSubscription = this.gameSessions.watchSession(sessionId).subscribe({
       next: (session) => {
         this.session.set(session);
@@ -270,6 +258,13 @@ export class LobbyComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.sessionSubscription?.unsubscribe();
+  }
+
+  private async loadStoredPlayer(sessionId: string): Promise<void> {
+    const storedPlayer = await readPlayerSessionFor(sessionId);
+    if (storedPlayer) {
+      this.playerName.set(storedPlayer.playerName);
+    }
   }
 
   async joinAndPlay(): Promise<void> {
@@ -297,27 +292,17 @@ export class LobbyComponent implements OnInit, OnDestroy {
         sessionId: session.id,
         playerName,
       });
-      const refreshedSession = (await this.gameSessions.getSession(session.id)) ?? session;
-      const playerIndex = Math.max(
-        0,
-        refreshedSession.players.findIndex((currentPlayer) => currentPlayer.name === player.name),
-      );
-      const token = this.encodePayload({
-        batch: 1,
-        entry: Number(session.puzzleId) || 2,
-        difficulty: refreshedSession.difficulty,
-        durationMinutes: refreshedSession.durationMinutes,
-        startAt: refreshedSession.startAt ?? Date.now(),
-        createdAt: refreshedSession.createdAt,
-        playerIndex,
-        playerId: player.id,
-        playerName: player.name,
-        totalPlayers: refreshedSession.maxPlayers,
-        sessionId: refreshedSession.id,
-        puzzleId: refreshedSession.puzzleId,
+
+      if (!player.playerToken) {
+        throw new Error('Server did not return a player session token.');
+      }
+
+      await savePlayerSession({
+        sessionId: session.id,
+        playerToken: player.playerToken,
       });
 
-      await this.router.navigate(['/game', token]);
+      await this.router.navigate(['/game', session.id]);
     } catch (error) {
       console.error('Failed to join lobby', error);
       this.error.set(error instanceof Error ? error.message : 'Could not join this lobby.');
@@ -336,20 +321,5 @@ export class LobbyComponent implements OnInit, OnDestroy {
     }
 
     return `${minutes} minutes`;
-  }
-
-  private encodePayload(payload: GameTokenPayload): string {
-    return this.base64UrlEncode(JSON.stringify(payload));
-  }
-
-  private base64UrlEncode(raw: string): string {
-    try {
-      if (typeof btoa === 'undefined') {
-        return raw;
-      }
-      return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-    } catch {
-      return raw;
-    }
   }
 }

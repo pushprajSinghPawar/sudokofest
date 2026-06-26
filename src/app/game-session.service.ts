@@ -13,6 +13,7 @@ export type GameSessionPlayer = {
   score: number;
   joinedAt: number;
   updatedAt: number;
+  playerToken?: string;
 };
 
 export type GameSession = {
@@ -24,6 +25,7 @@ export type GameSession = {
   durationMinutes: number;
   status: GameSessionStatus;
   startAt: number;
+  endAt?: number | null;
   createdAt: number;
   updatedAt: number;
   players: GameSessionPlayer[];
@@ -51,7 +53,7 @@ export type PuzzleResponse = {
 
 export type SubmitMoveInput = {
   sessionId: string;
-  playerId: string;
+  playerToken: string;
   cellIndex: number;
   value: string;
   clientMoveId: string;
@@ -94,10 +96,11 @@ export abstract class GameSessionService {
   abstract getSession(sessionId: string): Promise<GameSession | null>;
   abstract watchSession(sessionId: string): Observable<GameSession | null>;
   abstract joinSession(input: JoinGameSessionInput): Promise<GameSessionPlayer>;
-  abstract getPuzzle(sessionId: string, playerId: string): Promise<PuzzleResponse>;
+  abstract getPuzzle(sessionId: string, playerToken: string): Promise<PuzzleResponse>;
   abstract submitMove(input: SubmitMoveInput): Promise<MoveResult>;
   abstract getScoreboard(sessionId: string): Promise<ScoreboardEntry[]>;
   abstract watchScoreboard(sessionId: string): Observable<ScoreboardEntry[]>;
+  abstract finalizeSession(sessionId: string): Promise<GameSession>;
 }
 
 @Injectable()
@@ -160,11 +163,11 @@ export class RemoteGameSessionService extends GameSessionService {
     );
   }
 
-  getPuzzle(sessionId: string, playerId: string): Promise<PuzzleResponse> {
+  getPuzzle(sessionId: string, playerToken: string): Promise<PuzzleResponse> {
     return firstValue(
       this.http.get<PuzzleResponse>(`${this.apiBaseUrl}/sessions/${sessionId}/puzzle`, {
         params: {
-          playerId,
+          playerToken,
         },
       }),
     );
@@ -173,7 +176,7 @@ export class RemoteGameSessionService extends GameSessionService {
   submitMove(input: SubmitMoveInput): Promise<MoveResult> {
     return firstValue(
       this.http.post<MoveResult>(`${this.apiBaseUrl}/sessions/${input.sessionId}/moves`, {
-        playerId: input.playerId,
+        playerToken: input.playerToken,
         cellIndex: input.cellIndex,
         value: input.value,
         clientMoveId: input.clientMoveId,
@@ -213,6 +216,12 @@ export class RemoteGameSessionService extends GameSessionService {
         socket.close();
       };
     });
+  }
+
+  finalizeSession(sessionId: string): Promise<GameSession> {
+    return firstValue(
+      this.http.post<GameSession>(`${this.apiBaseUrl}/sessions/${sessionId}/finalize`, {}),
+    );
   }
 
   private openSocket(sessionId: string): WebSocket {
