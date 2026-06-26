@@ -70,6 +70,7 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
         background: rgba(15, 23, 42, 0.7);
         padding: 1rem;
         min-width: 0;
+        box-sizing: border-box;
       }
 
       .player-section,
@@ -233,9 +234,8 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
         border: 1px solid rgba(71, 85, 105, 0.9);
         color: #cbd5e1;
         font-size: 0.82rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
         margin-bottom: 0.7rem;
         direction: ltr;
       }
@@ -262,6 +262,10 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
       }
 
       @media (max-width: 720px) {
+        :host {
+          padding: 0.85rem;
+        }
+
         .card {
           padding: 1.25rem;
         }
@@ -269,6 +273,32 @@ type CreatorDifficulty = 'any' | SessionDifficulty;
         .grid,
         .players-grid {
           grid-template-columns: 1fr;
+        }
+
+        .actions-row > * {
+          width: 100%;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .card {
+          padding: 1rem;
+          border-radius: 1rem;
+        }
+
+        .title {
+          font-size: 1.45rem;
+        }
+
+        .field,
+        .result-card,
+        .helper-card {
+          padding: 0.85rem;
+        }
+
+        .player-link-head {
+          align-items: flex-start;
+          flex-direction: column;
         }
       }
     `,

@@ -22,148 +22,173 @@ import { readPlayerSessionFor } from './player-session.storage';
     `
       :host {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: center;
         min-height: 100dvh;
-        background: radial-gradient(circle at top, #020617 0, #000 60%);
-        color: #e5e7eb;
+        background:
+          radial-gradient(circle at top, rgba(245, 158, 11, 0.12), transparent 24%),
+          radial-gradient(circle at right, rgba(59, 130, 246, 0.1), transparent 30%),
+          linear-gradient(180deg, #111111 0%, #171717 48%, #0b0b0c 100%);
+        color: #f8fafc;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
           sans-serif;
-        padding: 1.5rem;
+        padding: 0.75rem;
         box-sizing: border-box;
       }
 
       .shell {
         width: 100%;
         max-width: 1120px;
-        background: rgba(15, 23, 42, 0.94);
-        border-radius: 1.25rem;
-        border: 1px solid rgba(148, 163, 184, 0.35);
-        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.75);
-        padding: clamp(1rem, 2.4vw, 1.75rem);
-        backdrop-filter: blur(18px);
+        min-height: min(100dvh - 1.5rem, 920px);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 0.7rem;
+        background: rgba(17, 17, 19, 0.96);
+        border-radius: 1.1rem;
+        border: 1px solid rgba(250, 204, 21, 0.14);
+        box-shadow: 0 28px 90px rgba(0, 0, 0, 0.5);
+        padding: clamp(0.75rem, 2vw, 1.1rem);
+        backdrop-filter: blur(12px);
+        overflow: hidden;
       }
 
       .topbar {
         display: grid;
-        grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(140px, 180px));
-        gap: 0.9rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.55rem;
         align-items: stretch;
-        margin-bottom: 1.2rem;
+      }
+
+      .user-panel {
+        grid-column: 1 / -1;
       }
 
       .panel {
         box-sizing: border-box;
-        border-radius: 1rem;
-        border: 1px solid rgba(148, 163, 184, 0.22);
-        background: rgba(15, 23, 42, 0.72);
-        padding: 0.95rem 1rem;
+        border-radius: 0.95rem;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: linear-gradient(180deg, rgba(28, 28, 31, 0.98), rgba(19, 19, 22, 0.98));
+        padding: 0.7rem 0.75rem;
         min-width: 0;
       }
 
       .panel-label {
         display: block;
-        font-size: 0.72rem;
+        font-size: 0.64rem;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: #94a3b8;
-        margin-bottom: 0.55rem;
+        letter-spacing: 0.14em;
+        color: #a3a3a3;
+        margin-bottom: 0.32rem;
       }
 
       .field-value {
-        min-height: 3.15rem;
+        min-height: 2.55rem;
         display: flex;
         align-items: center;
         width: 100%;
         box-sizing: border-box;
         min-width: 0;
-        border: 1px solid rgba(129, 140, 248, 0.32);
-        border-radius: 0.85rem;
-        background: rgba(2, 6, 23, 0.72);
-        color: #e5e7eb;
-        padding: 0.85rem 0.95rem;
-        font-size: 0.98rem;
+        gap: 0.45rem;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 0.8rem;
+        background: rgba(10, 10, 12, 0.92);
+        color: #f8fafc;
+        padding: 0.65rem 0.75rem;
+        font-size: 0.92rem;
         font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
+      .panel-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: rgba(245, 158, 11, 0.14);
+        color: #fbbf24;
+      }
+
+      .panel-icon svg {
+        width: 0.92rem;
+        height: 0.92rem;
+        fill: currentColor;
+      }
+
+      .field-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
       .stat-value {
-        font-size: clamp(1.15rem, 2vw, 1.7rem);
+        font-size: clamp(1rem, 1.7vw, 1.35rem);
         font-weight: 700;
         letter-spacing: -0.03em;
-        color: #f8fafc;
-      }
-
-      .stat-subtext {
-        margin-top: 0.35rem;
-        font-size: 0.82rem;
-        color: #94a3b8;
-      }
-
-      .eyebrow {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: #9ca3af;
-        margin-bottom: 0.5rem;
-      }
-
-      .title {
-        font-size: 1.7rem;
-        font-weight: 600;
-        letter-spacing: -0.03em;
-        margin-bottom: 0.35rem;
-      }
-
-      .description {
-        font-size: 0.96rem;
-        color: #9ca3af;
-        margin-bottom: 1.5rem;
-      }
-
-      .meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        margin-bottom: 1.25rem;
-        font-size: 0.8rem;
-        color: #9ca3af;
-      }
-
-      .badge {
-        border-radius: 999px;
-        padding: 0.35rem 0.75rem;
-        font-size: 0.78rem;
-        border: 1px solid rgba(129, 140, 248, 0.85);
-        background: rgba(15, 23, 42, 0.85);
-        color: #a5b4fc;
-      }
-
-      .game-id {
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo,
-          Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        color: #ffffff;
       }
 
       .play-area {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 1rem;
+        gap: 0.5rem;
         align-items: start;
+        flex: 1;
+        min-height: 0;
       }
 
       .board-shell {
-        width: min(100%, clamp(17rem, 72vmin, 40rem));
+        width: min(100%, clamp(15.25rem, 63vmin, 27rem));
         justify-self: center;
         min-width: 0;
       }
 
-      .side-panel {
-        border-radius: 1rem;
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        background: rgba(15, 23, 42, 0.62);
-        padding: 1rem;
+      .number-pad {
+        margin-top: 0.55rem;
+        padding: 0.55rem;
+        border-radius: 0.95rem;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(14, 14, 16, 0.94);
+      }
+
+      .number-pad-grid {
+        display: grid;
+        grid-template-columns: repeat(9, minmax(0, 1fr));
+        gap: 0.3rem;
+      }
+
+      .number-button,
+      .clear-button {
+        appearance: none;
+        border: 1px solid rgba(245, 158, 11, 0.28);
+        border-radius: 0.75rem;
+        background: linear-gradient(180deg, rgba(34, 34, 37, 0.98), rgba(17, 17, 19, 0.98));
+        color: #f8fafc;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .number-button {
+        min-height: 2.35rem;
+        font-size: 0.92rem;
+      }
+
+      .clear-button {
+        width: 100%;
+        margin-top: 0.45rem;
+        padding: 0.65rem 0.9rem;
+        font-size: 0.82rem;
+      }
+
+      .number-button:disabled,
+      .clear-button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
 
       .board {
@@ -172,10 +197,10 @@ import { readPlayerSessionFor } from './player-session.storage';
         grid-template-columns: repeat(9, minmax(0, 1fr));
         gap: 0;
         width: 100%;
-        padding: clamp(0.45rem, 1.5vw, 0.7rem);
-        border-radius: 1rem;
-        background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98));
-        border: 1px solid rgba(55, 65, 81, 0.9);
+        padding: clamp(0.35rem, 1.2vw, 0.55rem);
+        border-radius: 0.95rem;
+        background: linear-gradient(180deg, rgba(24, 24, 27, 0.99), rgba(10, 10, 12, 0.99));
+        border: 1px solid rgba(245, 158, 11, 0.18);
         overflow: hidden;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
       }
@@ -183,29 +208,29 @@ import { readPlayerSessionFor } from './player-session.storage';
       .board::after {
         content: '';
         position: absolute;
-        inset: clamp(0.45rem, 1.5vw, 0.7rem);
+        inset: clamp(0.35rem, 1.2vw, 0.55rem);
         pointer-events: none;
         background-image:
           linear-gradient(
             to right,
             transparent 32.9%,
-            rgba(165, 180, 252, 0.95) 32.9%,
-            rgba(165, 180, 252, 0.95) 33.6%,
+            rgba(251, 191, 36, 0.82) 32.9%,
+            rgba(251, 191, 36, 0.82) 33.6%,
             transparent 33.6%,
             transparent 66.2%,
-            rgba(165, 180, 252, 0.95) 66.2%,
-            rgba(165, 180, 252, 0.95) 66.9%,
+            rgba(251, 191, 36, 0.82) 66.2%,
+            rgba(251, 191, 36, 0.82) 66.9%,
             transparent 66.9%
           ),
           linear-gradient(
             to bottom,
             transparent 32.9%,
-            rgba(165, 180, 252, 0.95) 32.9%,
-            rgba(165, 180, 252, 0.95) 33.6%,
+            rgba(251, 191, 36, 0.82) 32.9%,
+            rgba(251, 191, 36, 0.82) 33.6%,
             transparent 33.6%,
             transparent 66.2%,
-            rgba(165, 180, 252, 0.95) 66.2%,
-            rgba(165, 180, 252, 0.95) 66.9%,
+            rgba(251, 191, 36, 0.82) 66.2%,
+            rgba(251, 191, 36, 0.82) 66.9%,
             transparent 66.9%
           );
         z-index: 2;
@@ -219,18 +244,18 @@ import { readPlayerSessionFor } from './player-session.storage';
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: clamp(0.88rem, 2.2vw, 1.35rem);
+        font-size: clamp(0.82rem, 2vw, 1.12rem);
         font-weight: 600;
-        border: 1px solid rgba(71, 85, 105, 0.85);
-        background: rgba(17, 24, 39, 0.9);
-        color: #e5e7eb;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(21, 21, 24, 0.96);
+        color: #f3f4f6;
         cursor: pointer;
         transition: background-color 0.15s ease, transform 0.12s ease,
           box-shadow 0.15s ease, color 0.15s ease;
       }
 
       .cell:hover {
-        background: rgba(30, 41, 59, 0.95);
+        background: rgba(33, 33, 37, 0.98);
       }
 
       .cell.fixed {
@@ -238,22 +263,22 @@ import { readPlayerSessionFor } from './player-session.storage';
       }
 
       .cell.editable {
-        color: #cbd5e1;
+        color: #f1f5f9;
       }
 
       .cell.related {
-        background: rgba(49, 46, 129, 0.3);
+        background: rgba(251, 191, 36, 0.08);
       }
 
       .cell.same-value {
-        border: 2px solid rgba(34, 197, 94, 0.8);
-        background: rgba(34, 197, 94, 0.2);
+        border: 2px solid rgba(34, 197, 94, 0.7);
+        background: rgba(21, 128, 61, 0.18);
       }
 
       .cell.selected {
-        background: rgba(79, 70, 229, 0.42);
-        border: 2px solid rgba(34, 197, 94, 0.9);
-        box-shadow: inset 0 0 0 2px rgba(196, 181, 253, 0.9);
+        background: rgba(245, 158, 11, 0.18);
+        border: 2px solid rgba(251, 191, 36, 0.95);
+        box-shadow: inset 0 0 0 1px rgba(254, 240, 138, 0.85);
         transform: scale(0.98);
       }
 
@@ -263,32 +288,12 @@ import { readPlayerSessionFor } from './player-session.storage';
 
       .cell.incorrect {
         color: #fecaca;
-        background: rgba(127, 29, 29, 0.4);
+        background: rgba(127, 29, 29, 0.58);
       }
 
       .cell.disabled {
         cursor: not-allowed;
         opacity: 0.72;
-      }
-
-      .footer-actions {
-        display: flex;
-        justify-content: center;
-        margin-top: 1rem;
-      }
-
-      .result-link {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.4rem;
-        padding: 0.8rem 1.1rem;
-        border-radius: 999px;
-        border: 1px solid rgba(129, 140, 248, 0.5);
-        background: rgba(15, 23, 42, 0.82);
-        color: #e5e7eb;
-        text-decoration: none;
-        font-weight: 600;
       }
 
       .cell.empty {
@@ -297,14 +302,14 @@ import { readPlayerSessionFor } from './player-session.storage';
 
       .completion-message {
         text-align: center;
-        padding: 1rem;
-        margin-top: 1rem;
+        padding: 0.75rem;
+        margin-top: 0.55rem;
         border-radius: 0.85rem;
         background: rgba(34, 197, 94, 0.15);
         border: 1px solid rgba(34, 197, 94, 0.5);
         color: #86efac;
         font-weight: 600;
-        font-size: 0.95rem;
+        font-size: 0.86rem;
         animation: slideUp 0.3s ease-out;
       }
 
@@ -320,77 +325,154 @@ import { readPlayerSessionFor } from './player-session.storage';
       }
 
       .error {
-        font-size: 0.85rem;
-        color: #fecaca;
-        margin-bottom: 1rem;
-      }
-
-      .actions {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
         font-size: 0.8rem;
-        color: #9ca3af;
+        color: #fecaca;
+        margin-bottom: 0.35rem;
       }
 
-      .back-link {
-        color: #a5b4fc;
-        text-decoration: none;
+      .game-footer {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        padding: 0.45rem 0.1rem 0.1rem;
+        color: #a3a3a3;
+        font-size: 0.68rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .footer-signature {
         display: inline-flex;
         align-items: center;
-        gap: 0.35rem;
+        gap: 0.45rem;
+        min-width: 0;
+        justify-content: center;
       }
 
-      .back-link:hover {
-        text-decoration: underline;
+      .footer-credit {
+        color: #f5f5f5;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .footer-separator {
+        width: 0.3rem;
+        height: 0.3rem;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: rgba(251, 191, 36, 0.7);
+      }
+
+      .footer-role {
+        color: #a3a3a3;
+      }
+
+      .footer-links {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+      }
+
+      .footer-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #f5f5f5;
+        text-decoration: none;
+        width: 1.9rem;
+        height: 1.9rem;
+        border-radius: 999px;
+        background: rgba(27, 27, 31, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .footer-link svg {
+        width: 0.95rem;
+        height: 0.95rem;
+        fill: currentColor;
       }
 
       @media (max-width: 640px) {
         .shell {
+          min-height: calc(100dvh - 1rem);
           border-radius: 1rem;
         }
-
-        .topbar {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .title {
-          font-size: 1.4rem;
-        }
-
-        .description {
-          margin-bottom: 1rem;
-        }
-
       }
 
       @media (max-width: 420px) {
         :host {
-          padding: 0.75rem;
+          padding: 0.35rem;
+        }
+
+        .shell {
+          min-height: calc(100dvh - 0.7rem);
+          padding: 0.55rem;
+          gap: 0.45rem;
         }
 
         .topbar {
           grid-template-columns: 1fr;
+          gap: 0.35rem;
+        }
+
+        .user-panel {
+          grid-column: auto;
         }
 
         .cell {
+          font-size: 0.72rem;
+        }
+
+        .number-pad {
+          margin-top: 0.4rem;
+          padding: 0.45rem;
+        }
+
+        .number-button {
+          min-height: 2rem;
+          font-size: 0.8rem;
+        }
+
+        .clear-button {
+          padding: 0.55rem 0.75rem;
+          font-size: 0.75rem;
+        }
+
+        .field-value {
+          min-height: 2.1rem;
+          padding: 0.55rem 0.6rem;
           font-size: 0.82rem;
+        }
+
+        .stat-value {
+          font-size: 0.96rem;
+        }
+
+        .panel {
+          padding: 0.52rem 0.56rem;
+        }
+
+        .game-footer {
+          font-size: 0.64rem;
+          gap: 0.35rem;
+        }
+
+        .footer-signature {
+          gap: 0.3rem;
+        }
+
+        .footer-link {
+          width: 1.7rem;
+          height: 1.7rem;
         }
       }
 
       @media (max-height: 820px) {
         :host {
-          padding-block: 0.75rem;
-        }
-
-        .topbar {
-          margin-bottom: 0.9rem;
-        }
-
-        .description {
-          margin-bottom: 0.9rem;
+          padding-block: 0.35rem;
         }
       }
 
@@ -464,7 +546,9 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
   private readonly gameSessions = inject(GameSessionService);
   private timerHandle: number | null = null;
   private finishHandled = false;
+  private readonly incorrectClearTimers = new Map<number, number>();
 
+  readonly keypadDigits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
   readonly username = signal('Guest Player');
   readonly playerId = signal<string | null>(null);
   readonly playerToken = signal<string | null>(null);
@@ -478,6 +562,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
   readonly selectedCell = signal<number | null>(null);
   readonly currentValues = signal<string[]>([]);
   readonly lockedCells = signal<boolean[]>([]);
+  readonly incorrectCells = signal<boolean[]>(Array.from({ length: 81 }, () => false));
   readonly startAt = signal<number | null>(null);
   readonly endAt = signal<number | null>(null);
   readonly createdAt = signal<number | null>(null);
@@ -495,6 +580,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     const puzzle = this.puzzle();
     const currentValues = this.currentValues();
     const lockedCells = this.lockedCells();
+    const incorrectCells = this.incorrectCells();
     const selectedCell = this.selectedCell();
 
     if (!puzzle || currentValues.length < 81 || lockedCells.length < 81) {
@@ -528,7 +614,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
           selectedBox === boxIndex);
       const sameValue = selectedValue != null && value === selectedValue && value !== '' && !isSelected;
       const correct = !originalFixed && lockedCells[index];
-      const incorrect = editable && value !== '';
+      const incorrect = incorrectCells[index] ?? false;
 
       return {
         index,
@@ -563,6 +649,10 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     if (this.timerHandle != null) {
       window.clearInterval(this.timerHandle);
     }
+    for (const timer of this.incorrectClearTimers.values()) {
+      window.clearTimeout(timer);
+    }
+    this.incorrectClearTimers.clear();
   }
 
   @HostListener('window:keydown', ['$event'])
@@ -699,6 +789,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       this.lockedCells.set(
         Array.from({ length: 81 }, (_, index) => originalLocked[index] || Boolean(serverLocked[index])),
       );
+      this.incorrectCells.set(Array.from({ length: 81 }, () => false));
       const session = await this.gameSessions.getSession(sessionId);
       const player = session?.players.find((currentPlayer) => currentPlayer.id === this.playerId());
       this.score.set(player?.score ?? 0);
@@ -768,6 +859,28 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       return;
     }
     this.selectedCell.set(index);
+  }
+
+  canUseNumberPad(): boolean {
+    return this.gameStatus() === 'running' && this.selectedCell() != null;
+  }
+
+  enterDigit(digit: string): void {
+    const selectedIndex = this.selectedCell();
+    if (selectedIndex == null || !/^[1-9]$/.test(digit)) {
+      return;
+    }
+
+    void this.updateCell(selectedIndex, digit);
+  }
+
+  clearSelectedCell(): void {
+    const selectedIndex = this.selectedCell();
+    if (selectedIndex == null) {
+      return;
+    }
+
+    this.clearCell(selectedIndex);
   }
 
   downloadReport(): void {
@@ -846,6 +959,7 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
     }
 
     const previousValue = currentValues[index] ?? '';
+    this.clearIncorrectState(index);
     currentValues[index] = nextValue;
     this.currentValues.set(currentValues);
     this.lastScoreChange.set('Checking move...');
@@ -863,11 +977,13 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       if (result.isCorrect) {
         lockedCells[index] = true;
         this.lockedCells.set(lockedCells);
+        this.clearIncorrectState(index);
         this.lastScoreChange.set(`Correct move: +${result.scoreDelta}`);
         this.selectedCell.set(this.findNextEditableCell(index));
         return;
       }
 
+      this.markIncorrectEntry(index, previousValue, nextValue);
       this.lastScoreChange.set(`Wrong move: ${result.scoreDelta}`);
     } catch (error) {
       console.error('Failed to submit move', error);
@@ -890,9 +1006,47 @@ export class SudokuGameComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.clearIncorrectState(index);
     currentValues[index] = '';
     this.currentValues.set(currentValues);
     this.lastScoreChange.set('Cell cleared.');
+  }
+
+  private markIncorrectEntry(index: number, previousValue: string, submittedValue: string): void {
+    const nextIncorrectCells = [...this.incorrectCells()];
+    nextIncorrectCells[index] = true;
+    this.incorrectCells.set(nextIncorrectCells);
+    this.clearIncorrectTimer(index);
+
+    const timer = window.setTimeout(() => {
+      const latestValues = [...this.currentValues()];
+      if (latestValues[index] === submittedValue) {
+        latestValues[index] = previousValue;
+        this.currentValues.set(latestValues);
+      }
+      this.clearIncorrectState(index);
+      this.lastScoreChange.set('Wrong move cleared. Try another number.');
+    }, 900);
+
+    this.incorrectClearTimers.set(index, timer);
+  }
+
+  private clearIncorrectState(index: number): void {
+    this.clearIncorrectTimer(index);
+    const nextIncorrectCells = [...this.incorrectCells()];
+    if (!nextIncorrectCells[index]) {
+      return;
+    }
+    nextIncorrectCells[index] = false;
+    this.incorrectCells.set(nextIncorrectCells);
+  }
+
+  private clearIncorrectTimer(index: number): void {
+    const timer = this.incorrectClearTimers.get(index);
+    if (timer != null) {
+      window.clearTimeout(timer);
+      this.incorrectClearTimers.delete(index);
+    }
   }
 
   private findFirstEditableCell(puzzle: string): number | null {

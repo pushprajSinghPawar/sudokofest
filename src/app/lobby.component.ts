@@ -95,6 +95,7 @@ import { readPlayerSessionFor, savePlayerSession } from './player-session.storag
         box-shadow: 0 24px 80px rgba(15, 23, 42, 0.75);
         padding: 2rem;
         backdrop-filter: blur(18px);
+        box-sizing: border-box;
       }
 
       .eyebrow,
@@ -128,6 +129,7 @@ import { readPlayerSessionFor, savePlayerSession } from './player-session.storag
         border: 1px solid rgba(148, 163, 184, 0.22);
         background: rgba(15, 23, 42, 0.7);
         padding: 1rem;
+        box-sizing: border-box;
       }
 
       .input {
@@ -209,8 +211,42 @@ import { readPlayerSessionFor, savePlayerSession } from './player-session.storag
       }
 
       @media (max-width: 640px) {
+        :host {
+          padding: 0.85rem;
+        }
+
         .card {
           padding: 1.25rem;
+        }
+
+        .player-row {
+          grid-template-columns: 2.5rem minmax(0, 1fr);
+        }
+
+        .player-row small {
+          grid-column: 1 / -1;
+          justify-self: start;
+        }
+
+        .actions-row > * {
+          width: 100%;
+        }
+      }
+
+      @media (max-width: 420px) {
+        .card {
+          padding: 1rem;
+          border-radius: 1rem;
+        }
+
+        .title {
+          font-size: 1.5rem;
+        }
+
+        .field,
+        .players,
+        .helper-card {
+          padding: 0.85rem;
         }
       }
     `,
