@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initializeFirebaseStore, readStoreFromFirebase, writeStoreToFirebase } from './firebase.mjs';
+import { createSessionMemoryProvider } from './session-memory-provider.mjs';
 import { createPlayerToken, verifyPlayerToken } from './player-token.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -14,6 +14,14 @@ const PUZZLES_FILE = join(DATA_DIR, 'sudoku.json');
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
 const FULL_MASK = 0b1111111110;
 const ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+// Use 'memory' for in-memory storage or 'firebase' for Firebase
+const STORAGE_TYPE = process.env.STORAGE_TYPE ?? 'memory';
+const RESULTS_RETENTION_MINUTES = Number(process.env.RESULTS_RETENTION_MINUTES ?? 60);
+const sessionProvider = createSessionMemoryProvider(STORAGE_TYPE, {
+  cleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
+  resultsRetentionMs: RESULTS_RETENTION_MINUTES * 60 * 1000,
+});
 
 const app = Fastify({ logger: true });
 const rooms = new Map();
@@ -403,14 +411,11 @@ async function ensureDataDir() {
 }
 
 async function initializeCloudStorage() {
-  await initializeFirebaseStore();
-  console.log('✓ Firebase Realtime Database connected');
+  await sessionProvider.initialize();
 }
 
 async function readStore() {
-  const store = await readStoreFromFirebase();
-  console.log('✓ Loaded sessions from Firebase');
-  return store;
+  return sessionProvider.read();
 }
 
 function compactSessionStore(store) {
@@ -428,8 +433,7 @@ function compactSessionStore(store) {
 
 async function writeStore(store) {
   const compactStore = compactSessionStore(store);
-  await writeStoreToFirebase(compactStore);
-  console.log('✓ Saved sessions to Firebase');
+  await sessionProvider.write(compactStore);
 }
 
 async function getSession(sessionId, { sync = false } = {}) {
