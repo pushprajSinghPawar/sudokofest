@@ -18,21 +18,61 @@ const ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 // Use 'memory' for in-memory storage or 'firebase' for Firebase
 const STORAGE_TYPE = process.env.STORAGE_TYPE ?? 'memory';
 const RESULTS_RETENTION_MINUTES = Number(process.env.RESULTS_RETENTION_MINUTES ?? 60);
-const sessionProvider = createSessionMemoryProvider(STORAGE_TYPE, {
-  cleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
-  resultsRetentionMs: RESULTS_RETENTION_MINUTES * 60 * 1000,
-});
+let sessionProvider = null; // will be created after `app` so we can pass the logger
 
+const LOG_PREFIX = '[session-server]';
 const app = Fastify({ logger: true });
 const rooms = new Map();
 let puzzleCache = null;
+
+function logServerEvent(message, details = {}) {
+  const payload = Object.keys(details).length ? ` ${JSON.stringify(details)}` : '';
+  const text = `${LOG_PREFIX} ${message}${payload}`;
+  console.log(text);
+  app.log.info(text);
+}
+
+function summarizeSessionStore(store) {
+  const sessions = Object.values(store?.sessions ?? {});
+  const byStatus = sessions.reduce((acc, session) => {
+    const status = session?.status ?? 'unknown';
+    acc[status] = (acc[status] ?? 0) + 1;
+    return acc;
+  }, { lobby: 0, running: 0, finished: 0, cancelled: 0, unknown: 0 });
+
+  return {
+    totalSessions: sessions.length,
+    totalPlayers: sessions.reduce((sum, session) => sum + (session?.players?.length ?? 0), 0),
+    byStatus,
+  };
+}
+
+function countActiveSessions(store) {
+  const sessions = Object.values(store?.sessions ?? {});
+  return sessions.filter((s) => (s?.status === 'lobby' || s?.status === 'running')).length;
+}
+
+// create session provider with structured logger (app.log)
+sessionProvider = createSessionMemoryProvider(STORAGE_TYPE, {
+  cleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
+  resultsRetentionMs: RESULTS_RETENTION_MINUTES * 60 * 1000,
+  logger: app.log,
+});
 
 await app.register(cors, {
   origin: true,
 });
 await app.register(websocket);
 
-app.get('/health', async () => ({ ok: true }));
+app.get('/health', async (request) => {
+  const store = await readStore();
+  const summary = summarizeSessionStore(store);
+  logServerEvent('health-check', {
+    ip: request.ip ?? 'unknown',
+    ...summary,
+  });
+  return { ok: true, sessions: summary };
+});
 
 app.get('/api/puzzles/summary', async () => {
   const puzzles = await loadPuzzles();
@@ -73,6 +113,15 @@ app.post('/api/sessions', async (request, reply) => {
 
   store.sessions[sessionId] = session;
   await writeStore(store);
+  const summary = summarizeSessionStore(store);
+  logServerEvent('session-created', {
+    sessionId,
+    difficulty: session.difficulty,
+    durationMinutes,
+    status: session.status,
+    totalSessions: summary.totalSessions,
+    byStatus: summary.byStatus,
+  });
   broadcastSession(sessionId);
 
   reply.code(201);
@@ -140,6 +189,15 @@ app.post('/api/sessions/:sessionId/join', async (request, reply) => {
   session.updatedAt = now;
 
   await writeStore(store);
+  const summary = summarizeSessionStore(store);
+  logServerEvent('session-joined', {
+    sessionId,
+    playerName,
+    playerId: player.id,
+    totalPlayers: summary.totalPlayers,
+    totalSessions: summary.totalSessions,
+    byStatus: summary.byStatus,
+  });
   broadcastSession(sessionId);
   broadcastScoreboard(sessionId);
 
@@ -217,10 +275,20 @@ app.post('/api/sessions/:sessionId/moves', async (request, reply) => {
   }
 
   const now = Date.now();
+  const beforeActive = countActiveSessions(store);
+  const fromStatus = session.status;
   const statusChanged = syncSessionLifecycle(session);
   if (session.status !== 'running') {
     if (statusChanged) {
       await writeStore(store);
+      const afterActive = countActiveSessions(store);
+      logServerEvent('session-status-changed', {
+        sessionId,
+        fromStatus,
+        toStatus: session.status,
+        beforeActive,
+        afterActive,
+      });
       broadcastSession(sessionId);
       if (session.status === 'finished') {
         broadcastScoreboard(sessionId);
@@ -270,6 +338,18 @@ app.post('/api/sessions/:sessionId/moves', async (request, reply) => {
   session.updatedAt = now;
 
   await writeStore(store);
+  const summary = summarizeSessionStore(store);
+  logServerEvent('move-accepted', {
+    sessionId,
+    playerId,
+    cellIndex,
+    value,
+    isCorrect,
+    scoreDelta,
+    scoreAfter,
+    totalSessions: summary.totalSessions,
+    byStatus: summary.byStatus,
+  });
   broadcastSession(sessionId);
   broadcastScoreboard(sessionId);
 
@@ -297,7 +377,23 @@ app.post('/api/sessions/:sessionId/finalize', async (request, reply) => {
 
   const changed = syncSessionLifecycle(session);
   if (changed) {
+    const beforeActive = countActiveSessions(store);
     await writeStore(store);
+    const afterActive = countActiveSessions(store);
+    logServerEvent('session-status-changed', {
+      sessionId,
+      fromStatus: null,
+      toStatus: session.status,
+      beforeActive,
+      afterActive,
+      endAt: session.endAt ?? null,
+    });
+    logServerEvent('session-finalized', {
+      sessionId,
+      status: session.status,
+      endAt: session.endAt ?? null,
+      summary: summarizeSessionStore(store),
+    });
     broadcastSession(sessionId);
     broadcastScoreboard(sessionId);
   }
@@ -411,11 +507,20 @@ async function ensureDataDir() {
 }
 
 async function initializeCloudStorage() {
+  logServerEvent('storage-initializing', {
+    storageType: STORAGE_TYPE,
+    resultsRetentionMinutes: RESULTS_RETENTION_MINUTES,
+  });
   await sessionProvider.initialize();
+  logServerEvent('storage-ready', {
+    storageType: STORAGE_TYPE,
+  });
 }
 
 async function readStore() {
-  return sessionProvider.read();
+  const store = await sessionProvider.read();
+  logServerEvent('store-read', summarizeSessionStore(store));
+  return store;
 }
 
 function compactSessionStore(store) {
@@ -434,6 +539,7 @@ function compactSessionStore(store) {
 async function writeStore(store) {
   const compactStore = compactSessionStore(store);
   await sessionProvider.write(compactStore);
+  logServerEvent('store-write', summarizeSessionStore(compactStore));
 }
 
 async function getSession(sessionId, { sync = false } = {}) {
@@ -443,11 +549,24 @@ async function getSession(sessionId, { sync = false } = {}) {
     return null;
   }
 
-  if (sync && syncSessionLifecycle(session)) {
-    await writeStore(store);
-    broadcastSession(sessionId);
-    if (session.status === 'finished') {
-      broadcastScoreboard(sessionId);
+  if (sync) {
+    const beforeActive = countActiveSessions(store);
+    const fromStatus = session.status;
+    const changed = syncSessionLifecycle(session);
+    if (changed) {
+      await writeStore(store);
+      const afterActive = countActiveSessions(store);
+      logServerEvent('session-status-changed', {
+        sessionId,
+        fromStatus,
+        toStatus: session.status,
+        beforeActive,
+        afterActive,
+      });
+      broadcastSession(sessionId);
+      if (session.status === 'finished') {
+        broadcastScoreboard(sessionId);
+      }
     }
   }
 

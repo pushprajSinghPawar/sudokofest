@@ -23,6 +23,36 @@ function createInMemoryProvider(options = {}) {
   const store = {
     sessions: {},
   };
+  const logger = options.logger ?? console;
+
+  function logProviderEvent(message, details = {}) {
+    // Prefer structured logger (pino) when provided
+    if (logger && typeof logger.info === 'function') {
+      try {
+        logger.info({ source: 'session-memory-provider', event: message, ...details });
+        return;
+      } catch (e) {
+        // fallthrough to console
+      }
+    }
+    const payload = Object.keys(details).length ? ` ${JSON.stringify(details)}` : '';
+    console.log(`[session-memory-provider] ${message}${payload}`);
+  }
+
+  function summarizeSessions() {
+    const sessions = Object.values(store.sessions ?? {});
+    const byStatus = sessions.reduce((acc, session) => {
+      const status = session?.status ?? 'unknown';
+      acc[status] = (acc[status] ?? 0) + 1;
+      return acc;
+    }, { lobby: 0, running: 0, finished: 0, cancelled: 0, unknown: 0 });
+
+    return {
+      totalSessions: sessions.length,
+      totalPlayers: sessions.reduce((sum, session) => sum + (session?.players?.length ?? 0), 0),
+      byStatus,
+    };
+  }
 
   // Cleanup interval (default 5 minutes to check for expired sessions)
   const cleanupIntervalMs = options.cleanupIntervalMs ?? 5 * 60 * 1000;
@@ -48,18 +78,32 @@ function createInMemoryProvider(options = {}) {
   }
 
   async function initialize() {
-   
+    logProviderEvent('storage-initialized', {
+      storageType: 'memory',
+      resultsRetentionMinutes: Math.round(resultsRetentionMs / 60 / 1000),
+      cleanupIntervalMinutes: Math.round(cleanupIntervalMs / 60 / 1000),
+    });
+
     // Start cleanup interval
     if (cleanupInterval) clearInterval(cleanupInterval);
     cleanupInterval = setInterval(() => {
       const before = Object.keys(store.sessions).length;
+      const removed = [];
       Object.entries(store.sessions).forEach(([sessionId, session]) => {
         if (!shouldKeepSession(session)) {
+          removed.push({ sessionId, status: session?.status ?? 'unknown' });
           delete store.sessions[sessionId];
         }
       });
       const after = Object.keys(store.sessions).length;
       if (before !== after) {
+        logProviderEvent('session-cleanup', {
+          before,
+          after,
+          removedCount: removed.length,
+          removed,
+          summary: summarizeSessions(),
+        });
       }
     }, cleanupIntervalMs);
   }
@@ -72,9 +116,11 @@ function createInMemoryProvider(options = {}) {
       }
     });
 
-    return {
+    const result = {
       sessions: { ...store.sessions },
     };
+    logProviderEvent('store-read', summarizeSessions());
+    return result;
   }
 
   async function write(data) {
@@ -88,6 +134,8 @@ function createInMemoryProvider(options = {}) {
         delete store.sessions[sessionId];
       }
     });
+
+    logProviderEvent('store-write', summarizeSessions());
   }
 
   function destroy() {
