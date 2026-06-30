@@ -71,3 +71,6 @@ npm test         # unit tests
 - API won't start → check `.env` and Firebase credentials; the server requires Firebase (no local session file fallback).
 - Can't join or play → re-join the lobby to refresh your signed player token in session storage.
 - CORS / connection errors → confirm `npm run start:api` is running on port 4000.
+
+<img width="1383" height="868" alt="image" src="https://github.com/user-attachments/assets/4f52e694-314d-41a4-acdd-173d99bffeb5" />
+
